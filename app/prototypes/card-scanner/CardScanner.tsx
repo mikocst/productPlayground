@@ -173,7 +173,7 @@ export function CardScanner() {
     <main className="mx-auto max-w-2xl space-y-6 px-5 py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Card Scanner</h1>
-        {card.status !== "empty" && <Button onClick={scanAnother} className={quiet}>Scan</Button>}
+        {card.status !== "empty" && <Button onClick={scanAnother} className="px-6">Scan</Button>}
       </header>
 
       {card.status === "empty" && (

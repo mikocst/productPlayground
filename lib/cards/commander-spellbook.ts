@@ -22,6 +22,7 @@ function toCard(use: Json): ComboCard {
     name: str(card.name) ?? "Unknown card",
     oracleId: str(card.oracleId),
     image: str(card.imageUriFrontSmall),
+    largeImage: str(card.imageUriFrontLarge) ?? str(card.imageUriFrontPng) ?? str(card.imageUriFrontNormal),
     zones: arr(use.zoneLocations).map((z) => ZONES[String(z)] ?? "").filter(Boolean),
   };
 }

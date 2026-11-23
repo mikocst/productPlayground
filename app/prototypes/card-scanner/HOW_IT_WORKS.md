@@ -83,7 +83,12 @@ Matching is tuned so a wrong card is never opened silently:
   - The tiles are labeled as not live quotes.
 - **Printing carousel:** prev/next, a set-code strip, and rarity/finish/date badges. The strip starts at the left and only scrolls when the selected set would be hidden, bringing it to the left edge (no centering, no page scroll).
 - **Combos:** the top 3 by Spellbook deck popularity. "Show all combos" pages by 20 from the API's next offset.
-- **Controls:** Scan (back to the camera) in the header and Reset view under the card. Reset and Surprise me controls were removed at the owner's request.
+- **Card preview modal** (`CardModal`): tapping a card in a combo opens it full size in a native `<dialog>` that covers the screen with a dimmed backdrop.
+  - Tapping or clicking anywhere except the card closes it, as does Escape (a screen-reader-only Close button is also provided).
+  - It fades with a 0.2 s easeOut, and the card scales from 0.96 (no scale with reduced motion).
+  - `dialog.close()` runs after the exit animation, and page scroll is locked while open.
+  - It uses Spellbook's large card image, falling back to the thumbnail.
+- **Controls:** Scan (back to the camera) as the primary-blue call to action in the header, and Reset view under the card. Reset and Surprise me controls were removed at the owner's request.
 - **API routes:** the browser never calls Scryfall or Commander Spellbook APIs directly.
   - `POST /recognize` resolves typed names: fuzzy lookup, then autocomplete on shrinking prefixes for typos.
   - `GET /card/[oracleId]` returns every printing.
@@ -108,6 +113,7 @@ page.tsx
    ├─ CardViewport              3D card, tilt, swipe, flip, gyro, reset       (result view)
    ├─ PrintingCarousel          printing nav, set index, prices, links
    └─ ComboList → ComboItem     top 3 + expanded list
+      └─ CardModal              full-size card preview
 ```
 
 ## Error Handling
@@ -140,6 +146,7 @@ page.tsx
 - `RecognitionStatus.tsx`, `ManualSearch.tsx`: recognition feedback and typed fallback
 - `StorePrices.tsx`: per-store price tiles for the selected printing
 - `CardViewport.tsx`, `PrintingCarousel.tsx`, `ComboList.tsx`: result views
+- `CardModal.tsx`: full-size card preview for combo cards
 - `scryfall.ts`, `combos.ts`: client fetchers for the internal API routes, formatting
 - `types.ts`, `data.ts`: prototype types and tunable constants (with the measurements behind them)
 - `lib/cards/art-hash.ts`: shared perceptual hashing (browser scanner and index builder)

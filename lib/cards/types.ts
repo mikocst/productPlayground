@@ -63,6 +63,8 @@ export type ComboCard = {
   name: string;
   oracleId: string | null;
   image: string | null;
+  /** Full-size front image for the card preview modal. */
+  largeImage: string | null;
   zones: string[];
 };
 

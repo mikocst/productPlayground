@@ -2,11 +2,13 @@
 
 import Image from "next/image";
 import { AnimatePresence, motion } from "motion/react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CardModal } from "./CardModal";
 import { identityLabel, popularityLabel } from "./combos";
 import { COMBO_PREVIEW } from "./data";
-import type { Combo, ComboState } from "./types";
+import type { Combo, ComboCard, ComboState } from "./types";
 
 type Props = {
   state: ComboState;
@@ -19,18 +21,27 @@ type Props = {
 const MotionLi = motion.create("li");
 const quiet = "border border-border bg-card text-foreground hover:bg-muted";
 
-function ComboItem({ combo }: { combo: Combo }) {
+function ComboItem({ combo, onView }: { combo: Combo; onView: (card: ComboCard) => void }) {
   const steps = combo.description.split("\n").map((line) => line.trim()).filter(Boolean);
   const popularity = popularityLabel(combo.popularity);
   return (
     <article className="space-y-3 rounded-xl border border-border bg-card p-4">
       <ul className="flex flex-wrap gap-2" aria-label="Cards in combo">
         {combo.cards.map((card, i) => (
-          <li key={`${card.name}-${i}`} className="flex items-center gap-2 rounded-lg border border-border bg-muted py-1 pl-1 pr-2.5 text-sm">
-            {card.image ? (
-              <Image src={card.image} alt="" width={28} height={39} unoptimized className="h-9.75 w-7 rounded-sm object-cover" />
-            ) : null}
-            <span>{card.name}</span>
+          <li key={`${card.name}-${i}`}>
+            <motion.button
+              type="button"
+              aria-haspopup="dialog"
+              aria-label={`View ${card.name}`}
+              onClick={() => onView(card)}
+              whileTap={{ scale: 0.97 }}
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-border bg-muted py-1 pl-1 pr-2.5 text-left text-sm transition-colors duration-150 ease-out hover:bg-card"
+            >
+              {card.image ? (
+                <Image src={card.image} alt="" width={28} height={39} unoptimized className="h-9.75 w-7 rounded-sm object-cover" />
+              ) : null}
+              <span>{card.name}</span>
+            </motion.button>
           </li>
         ))}
       </ul>
@@ -75,6 +86,7 @@ function ComboItem({ combo }: { combo: Combo }) {
 }
 
 export function ComboList({ state, onExpand, onCollapse, onLoadMore, onRetry }: Props) {
+  const [viewing, setViewing] = useState<ComboCard | null>(null);
   const visible = state.expanded ? state.items : state.items.slice(0, COMBO_PREVIEW);
   const loading = state.status === "loading";
   const canExpand = !state.expanded && (state.items.length > COMBO_PREVIEW || state.nextOffset !== null);
@@ -119,7 +131,7 @@ export function ComboList({ state, onExpand, onCollapse, onLoadMore, onRetry }: 
                 transition={{ duration: 0.2, ease: "easeOut" }}
                 className="overflow-hidden"
               >
-                <ComboItem combo={combo} />
+                <ComboItem combo={combo} onView={setViewing} />
               </MotionLi>
             ))}
           </AnimatePresence>
@@ -138,6 +150,7 @@ export function ComboList({ state, onExpand, onCollapse, onLoadMore, onRetry }: 
       {state.expanded && state.status === "ready" && state.nextOffset === null && state.items.length > 0 && (
         <p className="text-xs text-muted-foreground">All {state.items.length} combos shown.</p>
       )}
+      <CardModal card={viewing} onClose={() => setViewing(null)} />
     </section>
   );
 }
