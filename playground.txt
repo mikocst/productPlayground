@@ -1,0 +1,184 @@
+# Build a Prototype Playground
+
+You are building a personal prototype playground: one web app that holds many small, self-contained prototypes (apps, games, simulations, tools). The owner will create new prototypes by asking a coding agent, often from a phone, so the system must make every new prototype fast to build, consistent, and hard to break.
+
+Build the foundation first, then write a rules file (`CLAUDE.md` or `AGENTS.md`) at the repo root that every future agent session reads before working.
+
+---
+
+## 1. The Foundation
+
+### Stack (suggested)
+- **Framework**: Vite with React JS and TypeScript
+- **Styling**: Tailwind CSS
+- **Components**: shadcn/ui, with all components installed up front so prototypes never wait on setup
+- **Theming**: `next-themes`, dark by default, system preference respected
+- **Hosting**: Any host with automatic preview deployments per branch or pull request (e.g. Vercel)
+
+### Structure
+
+app/
+├── prototypes/
+│   ├── [slug]/            # dynamic route
+│   └── <prototype-name>/  # one folder per prototype
+│       ├── page.tsx
+│       ├── metadata.json
+│       └── HOW_IT_WORKS.md
+├── api/                   # API routes, per prototype as needed
+├── page.tsx               # homepage gallery
+└── layout.tsx             # root layout + theme provider
+components/ui/             # shared design system components
+lib/prototypes.ts          # discovers prototypes and reads metadata
+public/thumbnails/         # static preview images
+scripts/                   # thumbnail capture and other tooling
+
+
+### Homepage gallery
+- Lists every prototype, sorted by most recently updated.
+- Each card shows a **static thumbnail image**, never a live embedded iframe. Live embeds boot a full app per card and will crash mobile browsers as the gallery grows.
+- Render both a light and dark thumbnail and switch between them with CSS, not JavaScript, to avoid a flash on load.
+
+### Thumbnails
+- Write a script that starts a production build, opens each prototype in a headless browser (e.g. Playwright), and saves a small light and dark screenshot per prototype.
+- Support flags to capture one prototype, several, or only the ones missing a thumbnail.
+- A missing thumbnail should fall back to a "No preview yet" tile, not break the build.
+
+### Privacy
+- Put the whole site behind a simple password gate in production (middleware + login page + auth API route).
+- Every prototype is **private by default**.
+- A prototype can be made public with a `"public": true` flag in its metadata, served at a separate public route (e.g. `/p/<slug>`) that renders the same component. Unknown or private slugs return 404, not a login redirect, so private names don't leak.
+- Only make a prototype public when the owner explicitly asks for that specific prototype.
+- When a prototype is public ALWAYS create og:img and og:video for the link so it looks great when being shared.
+
+### Prototype creation
+- New prototypes are always created by a coding agent, never from inside the app. Don't build a "new prototype" button or a create API.
+- The rules file tells the agent exactly how to create one: make a folder under `app/prototypes/`, add `page.tsx`, `metadata.json` and `HOW_IT_WORKS.md`, follow every rule in section 2, capture thumbnails, and open a pull request.
+
+---
+
+## 2. Rules for Every Prototype
+
+Write these into the rules file as non-negotiable.
+
+### Metadata
+Every prototype has a `metadata.json`:
+json
+{
+  "title": "My Prototype",
+  "description": "What it does",
+  "tags": ["tag1"],
+  "createdAt": "YYYY-MM-DD",
+  "updatedAt": "ISO timestamp",
+  "hidden": false,
+  "public": false
+}
+
+Bump `updatedAt` on every edit so the gallery stays sorted.
+
+### Documentation
+Every prototype has a `HOW_IT_WORKS.md`, kept current on every change:
+- **What It Does**: 1–2 sentences
+- **Architecture**: ASCII data-flow diagram
+- **Frontend / API**: bullet points on state, shortcuts, responsive behavior, request/response
+- **AI Usage** (if any model is called): model ID, why that model, how it's called, key parameters, system prompt summary, user prompt shape
+- **Key Dependencies**, **Component Tree**, **Error Handling**, **File Structure**
+
+### Self-contained and decomposed
+- Each prototype lives entirely in its own folder and doesn't depend on other prototypes.
+- Never write one giant file. Keep `page.tsx` thin (~60 lines) and split out:
+  - `types.ts`: shared types
+  - `data.ts`: mock data, constants, config
+  - pure logic files (`search.ts`, `utils.ts`): testable without React
+  - one file per meaningful UI component, named descriptively
+
+### Design system
+- Always use the shared components and design tokens (`bg-background`, `text-foreground`, `bg-card`, `bg-muted`, `text-muted-foreground`, `bg-primary`, `border-border`, etc.).
+- Never hardcode colors (`bg-black`, hex values, inline color styles).
+- Check the actual component source before assuming a prop exists. Component libraries differ from their docs.
+
+### Clean and minimal by default
+- Start with a single centered column (`max-w-2xl mx-auto`). No sidebars, split panels, or tab-heavy layouts unless asked.
+- Build only what was asked for. No extra dashboards, charts, or views.
+- Fewer elements is better. Every element must justify its existence. Plain badges over colorful ones. No decorative icons.
+- Write minimal interface copy. Cut captions that restate labels and hints nobody needed.
+
+### Control panels
+- Anything with tunable parameters (speed, color, size, count) gets a control panel, not scattered inputs.
+- Consider building a small shared library for this: define controls as a schema, get the panel, persistence, Reset, and **Randomize** for free.
+- Every control panel includes a Randomize ("surprise me") button alongside Reset.
+- Place the panel to the side on desktop so it never covers the subject; fall back to a bottom sheet on mobile.
+
+### Mobile first
+- Everything must work at ~375px wide.
+- Tap targets at least 44×44px.
+- Icon-only buttons on mobile, labels from `sm:` up.
+- No hover-only interactions. Hover states need a visible touch equivalent.
+- Code blocks wrap; no horizontal scrolling.
+- Modals need visible prev/next or swipe on mobile, not just keyboard shortcuts.
+
+### Light and dark mode
+- Design dark-first; light mode must also work, via tokens.
+- Never hardcode a `dark` class on a page. The theme is global.
+- Use `useTheme()` / `resolvedTheme` only when behavior (not just color) must change by theme, e.g. canvas or WebGL colors.
+
+### Motion
+- Rows or sections the user adds or removes animate their height open and closed. Nothing pops in and makes the page jump.
+- Use smooth deceleration curves, no bouncy overshoot.
+- Respect `prefers-reduced-motion`.
+- Verify animations actually run (check computed styles), since animation utility classes can silently do nothing if their CSS isn't imported.
+
+### AI-backed prototypes
+- Call models server-side through an API route; never expose keys to the client.
+- If a model generates UI or layout, put explicit layout constraints in the system prompt (max columns, no wide tables). Defensive CSS is a backup, not the fix.
+- Parse JSON from model output defensively (extract the first `{...}` block).
+- Always wrap API routes in try/catch and return proper status codes.
+
+### Storage
+- Wrap all `localStorage` access in try/catch.
+- Load on mount, not during server render.
+- Namespace keys per prototype.
+
+### Thumbnails
+- New prototype or any visual change → regenerate that prototype's thumbnails in the same commit.
+- Global style change → regenerate all.
+- Check the captured images before committing. A stale thumbnail is worse than none.
+
+---
+
+## 3. Workflow Rules
+
+- Work on a branch, push, and open a pull request when done. The PR triggers a build check and a preview deployment.
+- End every task by posting the preview link so the owner can open the prototype straight from their phone.
+- Before finishing, run lint, type-check, and a production build.
+- When something goes wrong and gets fixed, add the lesson to the rules file so it doesn't happen again. The rules file should grow over time.
+
+---
+
+## 4. Suggested Libraries
+
+Add these as prototypes need them. Install new dependencies at the repo root.
+
+| Need | Suggestions |
+|---|---|
+| 3D / WebGL | three.js, React Three Fiber |
+| Physics | Rapier, Matter.js |
+| Charts | Recharts, or plain SVG for sparklines |
+| Maps | MapLibre GL |
+| Text layout / typography effects | `@chenglou/pretext` |
+| Audio / synths | Web Audio API, Tone.js |
+| AI | Anthropic SDK (or your provider's SDK), server-side |
+| Generated UI from JSON | json-render or similar |
+| Browser automation | Playwright (thumbnails, visual checks, demo videos) |
+| Native app wrapper | Capacitor, if a prototype graduates to the App Store |
+
+---
+
+## 5. Definition of Done for the Foundation
+
+- [ ] App runs locally and builds for production
+- [ ] Homepage gallery with search, tags, hidden toggle, and static light/dark thumbnails
+- [ ] Password gate in production; public route serving only flagged prototypes
+- [ ] Rules file explains how an agent creates a new prototype from start to pull request
+- [ ] Thumbnail capture script works for one, several, or missing-only
+- [ ] One example prototype that follows every rule above (decomposed files, metadata, HOW_IT_WORKS, control panel with Randomize, mobile-friendly, light/dark)
+- [ ] Rules file at the repo root containing sections 2 and 3, written as instructions to future agents
