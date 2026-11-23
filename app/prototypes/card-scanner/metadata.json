@@ -1,0 +1,9 @@
+{
+  "title": "Card Scanner",
+  "description": "Scan a Magic: The Gathering card to see it in 3D, browse every printing with prices, and find its top combos.",
+  "tags": ["mtg", "camera", "ocr", "3d", "api"],
+  "createdAt": "2026-11-23",
+  "updatedAt": "2026-11-23T20:16:09Z",
+  "hidden": false,
+  "public": false
+}

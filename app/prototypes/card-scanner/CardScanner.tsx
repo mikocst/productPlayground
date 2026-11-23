@@ -1,0 +1,265 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { CameraScanner } from "./CameraScanner";
+import { CardViewport } from "./CardViewport";
+import { ComboList } from "./ComboList";
+import { fetchCombos } from "./combos";
+import { COMBO_PAGE, COMBO_PREVIEW, EMPTY_COMBOS, OCR_CONFIDENT, SURPRISE_CARDS } from "./data";
+import { ManualSearch } from "./ManualSearch";
+import { PrintingCarousel } from "./PrintingCarousel";
+import { RecognitionStatus } from "./RecognitionStatus";
+import { errorMessage, fetchCard, recognizeName } from "./scryfall";
+import type { CardIdentity, CardState, ComboState, NameSource, Recognition } from "./types";
+
+const quiet = "border border-border bg-card text-foreground hover:bg-muted";
+const link = "text-primary-bright underline-offset-4 hover:underline";
+
+function writeUrl(oracleId: string | null, printId: string | null) {
+  try {
+    const url = new URL(window.location.href);
+    url.search = "";
+    if (oracleId) url.searchParams.set("card", oracleId);
+    if (oracleId && printId) url.searchParams.set("print", printId);
+    window.history.replaceState(window.history.state, "", url);
+  } catch {
+    // URL state is a convenience; ignore failures.
+  }
+}
+
+export function CardScanner() {
+  const [recognition, setRecognition] = useState<Recognition>({ phase: "idle" });
+  const [card, setCard] = useState<CardState>({ status: "empty" });
+  const [printIndex, setPrintIndex] = useState(0);
+  const [direction, setDirection] = useState(1);
+  const [combos, setCombos] = useState<ComboState>(EMPTY_COMBOS);
+  const [resetSignal, setResetSignal] = useState(0);
+  const lookupRef = useRef<AbortController | null>(null);
+  const cardRef = useRef<AbortController | null>(null);
+  const comboRef = useRef<AbortController | null>(null);
+
+  const loadCombos = useCallback(async (oracleId: string, offset: number, limit: number, expanded: boolean) => {
+    comboRef.current?.abort();
+    const controller = new AbortController();
+    comboRef.current = controller;
+    setCombos((prev) => ({
+      ...(prev.oracleId === oracleId ? prev : EMPTY_COMBOS),
+      oracleId,
+      expanded,
+      status: "loading",
+      error: null,
+    }));
+    try {
+      const page = await fetchCombos(oracleId, offset, limit, controller.signal);
+      setCombos((prev) => {
+        const known = offset === 0 ? [] : prev.items;
+        const ids = new Set(known.map((combo) => combo.id));
+        return {
+          ...prev,
+          items: [...known, ...page.combos.filter((combo) => !ids.has(combo.id))],
+          nextOffset: page.nextOffset,
+          status: "ready",
+        };
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setCombos((prev) => ({ ...prev, status: "error", error: errorMessage(error) }));
+    }
+  }, []);
+
+  const openCard = useCallback(async (oracleId: string, printId: string | null = null, name?: string) => {
+    lookupRef.current?.abort();
+    cardRef.current?.abort();
+    const controller = new AbortController();
+    cardRef.current = controller;
+    setRecognition({ phase: "idle" });
+    setCard({ status: "loading", name });
+    setCombos(EMPTY_COMBOS);
+    try {
+      const data = await fetchCard(oracleId, controller.signal);
+      const index = Math.max(0, data.printings.findIndex((p) => p.id === printId));
+      setCard({ status: "ready", data });
+      setPrintIndex(index);
+      writeUrl(data.card.oracleId, data.printings[index]?.id ?? null);
+      loadCombos(data.card.oracleId, 0, COMBO_PREVIEW, false);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setCard({ status: "error", message: errorMessage(error), oracleId });
+    }
+  }, [loadCombos]);
+
+  const resolveName = useCallback(async (candidates: string[], source: NameSource, read = candidates[0] ?? "") => {
+    lookupRef.current?.abort();
+    if (!candidates.length) {
+      setRecognition({ phase: "no-match", read, suggestions: [] });
+      return;
+    }
+    const controller = new AbortController();
+    lookupRef.current = controller;
+    setRecognition({ phase: "resolving", query: candidates[0] });
+    try {
+      const result = await recognizeName(candidates, controller.signal);
+      if (result.status === "no-match") {
+        setRecognition({ phase: "no-match", read, suggestions: result.suggestions });
+      } else if (source === "typed" || result.confidence >= OCR_CONFIDENT) {
+        openCard(result.card.oracleId, null, result.card.name);
+      } else {
+        setRecognition({ phase: "confirm", card: result.card, read: result.matchedFrom, confidence: result.confidence, suggestions: result.suggestions });
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setRecognition({ phase: "error", message: errorMessage(error) });
+    }
+  }, [openCard]);
+
+  // Deep links: ?card=<oracle id>&print=<scryfall id>. Read after mount so server and first client render match.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oracleId = params.get("card");
+    if (!oracleId) return;
+    const timer = window.setTimeout(() => openCard(oracleId, params.get("print")), 0);
+    return () => window.clearTimeout(timer);
+  }, [openCard]);
+
+  useEffect(() => () => {
+    lookupRef.current?.abort();
+    cardRef.current?.abort();
+    comboRef.current?.abort();
+  }, []);
+
+  function selectPrinting(next: number) {
+    if (card.status !== "ready") return;
+    const total = card.data.printings.length;
+    if (next < 0 || next >= total || next === printIndex) return;
+    setDirection(next > printIndex ? 1 : -1);
+    setPrintIndex(next);
+    writeUrl(card.data.card.oracleId, card.data.printings[next].id);
+  }
+
+  function scanAnother() {
+    lookupRef.current?.abort();
+    cardRef.current?.abort();
+    comboRef.current?.abort();
+    setCard({ status: "empty" });
+    setCombos(EMPTY_COMBOS);
+    setRecognition({ phase: "idle" });
+    writeUrl(null, null);
+  }
+
+  function reset() {
+    lookupRef.current?.abort();
+    setRecognition({ phase: "idle" });
+    setResetSignal((value) => value + 1);
+    if (card.status !== "ready") return;
+    selectPrinting(0);
+    setCombos((prev) => ({ ...prev, expanded: false }));
+  }
+
+  function surprise() {
+    const current = card.status === "ready" ? card.data.card.name : "";
+    const pool = SURPRISE_CARDS.filter((name) => name !== current);
+    resolveName([pool[Math.floor(Math.random() * pool.length)]], "typed");
+  }
+
+  const busy = recognition.phase === "reading" || recognition.phase === "resolving";
+  const oracleId = card.status === "ready" ? card.data.card.oracleId : null;
+
+  return (
+    <main className="mx-auto max-w-2xl space-y-6 px-5 py-8">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Card Scanner</h1>
+        <div className="flex gap-2 whitespace-nowrap">
+          {card.status !== "empty" && <Button onClick={scanAnother} className={quiet}>Scan</Button>}
+          <Button onClick={reset} className={quiet}>Reset</Button>
+          <Button onClick={surprise} disabled={busy}>Surprise me</Button>
+        </div>
+      </header>
+
+      {card.status === "empty" && (
+        <div className="space-y-4">
+          <CameraScanner
+            busy={busy}
+            onReading={() => setRecognition({ phase: "reading" })}
+            onRead={(candidates, raw) => resolveName(candidates, "ocr", raw.split("\n")[0] ?? "")}
+            onFailure={(message) => setRecognition({ phase: "error", message })}
+          />
+          <RecognitionStatus
+            recognition={recognition}
+            onOpen={(identity: CardIdentity) => openCard(identity.oracleId, null, identity.name)}
+            onChoose={(name) => resolveName([name], "typed")}
+            onDismiss={() => setRecognition({ phase: "idle" })}
+          />
+          <ManualSearch disabled={busy} onSearch={(name) => resolveName([name], "typed")} />
+        </div>
+      )}
+
+      {card.status === "loading" && (
+        <div className="grid gap-6 sm:grid-cols-2" aria-busy="true">
+          <div className="mx-auto aspect-63/88 w-full max-w-[18rem] animate-pulse rounded-[4.75%/3.4%] bg-muted motion-reduce:animate-none" />
+          <p role="status" className="text-sm text-muted-foreground">Loading {card.name ?? "card"} printings…</p>
+        </div>
+      )}
+
+      {card.status === "error" && (
+        <div role="alert" className="space-y-3 rounded-xl border border-border bg-card p-4 text-sm">
+          <p>{card.message}</p>
+          <div className="flex gap-2 whitespace-nowrap">
+            <Button onClick={() => openCard(card.oracleId)}>Retry</Button>
+            <Button onClick={scanAnother} className={quiet}>Back to scanner</Button>
+          </div>
+        </div>
+      )}
+
+      {card.status === "ready" && (
+        <>
+          <div className="grid grid-cols-1 items-start gap-6 sm:grid-cols-2">
+            <div className="min-w-0 sm:sticky sm:top-6">
+              <CardViewport
+                printing={card.data.printings[printIndex]}
+                cardName={card.data.card.name}
+                direction={direction}
+                resetSignal={resetSignal}
+                onPrev={() => selectPrinting(printIndex - 1)}
+                onNext={() => selectPrinting(printIndex + 1)}
+              />
+            </div>
+            <div className="min-w-0 space-y-4">
+              <div>
+                <p className="text-sm text-muted-foreground">{card.data.card.typeLine}</p>
+                <p className="text-2xl font-semibold leading-tight">{card.data.card.name}</p>
+              </div>
+              <PrintingCarousel
+                printings={card.data.printings}
+                index={printIndex}
+                fetchedAt={card.data.fetchedAt}
+                truncated={card.data.truncated}
+                onSelect={selectPrinting}
+              />
+            </div>
+          </div>
+          {oracleId && (
+            <ComboList
+              state={combos}
+              onExpand={() => {
+                if (combos.nextOffset === null) setCombos((prev) => ({ ...prev, expanded: true }));
+                else loadCombos(oracleId, combos.nextOffset, COMBO_PAGE, true);
+              }}
+              onLoadMore={() => combos.nextOffset !== null && loadCombos(oracleId, combos.nextOffset, COMBO_PAGE, true)}
+              onCollapse={() => setCombos((prev) => ({ ...prev, expanded: false }))}
+              onRetry={() => combos.items.length === 0
+                ? loadCombos(oracleId, 0, COMBO_PREVIEW, false)
+                : loadCombos(oracleId, combos.nextOffset ?? 0, COMBO_PAGE, true)}
+            />
+          )}
+        </>
+      )}
+
+      <footer className="border-t border-border pt-4 text-xs text-muted-foreground">
+        Card data, images, and prices from <a className={link} href="https://scryfall.com" target="_blank" rel="noopener noreferrer">Scryfall</a>.
+        Combos from <a className={link} href="https://commanderspellbook.com" target="_blank" rel="noopener noreferrer">Commander Spellbook</a>.
+        Magic: The Gathering card names and art © Wizards of the Coast. This prototype is not affiliated with or endorsed by them.
+      </footer>
+    </main>
+  );
+}
