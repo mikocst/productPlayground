@@ -17,8 +17,6 @@ export const FRAME_HEIGHT = 0.86;
 export const DRAG_TILT = 22;
 export const HOVER_TILT = 8;
 export const GYRO_TILT = 14;
-/** Horizontal drag distance (px) that switches printings on release. */
-export const SWIPE_DISTANCE = 80;
 
 export const TILT_SPRING = { stiffness: 300, damping: 30 };
 

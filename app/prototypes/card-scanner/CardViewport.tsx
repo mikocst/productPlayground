@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { Button } from "@/components/ui/button";
 import { useHydrated } from "@/lib/hydration";
 import { cn } from "@/lib/utils";
-import { DRAG_TILT, GYRO_TILT, HOVER_TILT, SWIPE_DISTANCE, TILT_SPRING } from "./data";
+import { DRAG_TILT, GYRO_TILT, HOVER_TILT, TILT_SPRING } from "./data";
 import type { Printing } from "./types";
 
 type Props = {
@@ -139,13 +139,7 @@ export function CardViewport({ printing, cardName, direction, onPrev, onNext }: 
     const start = drag.current;
     if (!start || start.id !== event.pointerId) return;
     drag.current = null;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
     setTilt(0, 0);
-    if (Math.abs(dx) > SWIPE_DISTANCE && Math.abs(dx) > Math.abs(dy)) {
-      if (dx < 0) onNext();
-      else onPrev();
-    }
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -165,7 +159,7 @@ export function CardViewport({ printing, cardName, direction, onPrev, onNext }: 
         role="group"
         tabIndex={0}
         aria-roledescription="3D card"
-        aria-label={`${faceName(flipped ? 1 : 0)}, ${printing.setName}. Drag to tilt, swipe or use arrow keys to change printing${twoFaced ? ", F to flip" : ""}.`}
+        aria-label={`${faceName(flipped ? 1 : 0)}, ${printing.setName}. Drag to tilt, arrow keys change printing${twoFaced ? ", F to flip" : ""}.`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -202,7 +196,6 @@ export function CardViewport({ printing, cardName, direction, onPrev, onNext }: 
             {flipped ? "Show front" : "Flip card"}
           </Button>
         )}
-        <Button onClick={() => { setTilt(0, 0); setFace(false); }} className={quiet}>Reset view</Button>
         {gyroAvailable && (
           <Button onClick={toggleGyro} className={quiet} aria-pressed={gyro === "on"} disabled={gyro === "denied"}>
             {gyro === "denied" ? "Motion blocked" : gyro === "on" ? "Motion tilt on" : "Motion tilt"}

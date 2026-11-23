@@ -71,7 +71,7 @@ Matching is tuned so a wrong card is never opened silently:
     - True matches scored 4–22; the closest wrong card or token never scored below 26. An empty table is gated by texture.
 - **Photo upload:** hashes the centered card area with the same coarse-to-fine search and makes a single-shot decision (open, confirm, or "Couldn't match").
 - **3D card:** CSS 3D with motion springs.
-  - Drag tilts up to 22°; a horizontal drag over 80 px switches printing.
+  - Drag tilts up to 22°. Printings change with the arrow buttons, the set strip, or arrow keys; there is no swipe gesture.
   - Mouse hover tilts up to 8°; gyroscope tilt is opt-in on touch devices.
   - Double-faced printings get Flip (and the F key); arrow keys change printing.
   - Reduced motion removes hover and gyroscope tilt and turns slides into fades.
@@ -85,10 +85,10 @@ Matching is tuned so a wrong card is never opened silently:
 - **Combos:** the top 3 by Spellbook deck popularity. "Show all combos" pages by 20 from the API's next offset.
 - **Card preview modal** (`CardModal`): tapping a card in a combo opens it full size in a native `<dialog>` that covers the screen with a dimmed backdrop.
   - Tapping or clicking anywhere except the card closes it, as does Escape (a screen-reader-only Close button is also provided).
-  - It fades with a 0.2 s easeOut, and the card scales from 0.96 (no scale with reduced motion).
+  - It fades with a 0.2 s easeOut and does not scale, which keeps the card crisp.
   - `dialog.close()` runs after the exit animation, and page scroll is locked while open.
-  - It uses Spellbook's large card image, falling back to the thumbnail.
-- **Controls:** Scan (back to the camera) as the primary-blue call to action in the header, and Reset view under the card. Reset and Surprise me controls were removed at the owner's request.
+  - It uses Scryfall's PNG scan (744×1040, lossless) via Spellbook, falling back to the large webp, then the thumbnail.
+- **Controls:** Scan (back to the camera) as the primary-blue call to action in the header. Under the card: Flip for double-faced printings, and Motion tilt on touch devices. Reset and Surprise me controls were removed at the owner's request.
 - **API routes:** the browser never calls Scryfall or Commander Spellbook APIs directly.
   - `POST /recognize` resolves typed names: fuzzy lookup, then autocomplete on shrinking prefixes for typos.
   - `GET /card/[oracleId]` returns every printing.
@@ -110,7 +110,7 @@ page.tsx
    ├─ CameraScanner             camera, index load, auto-scan loop, upload   (scan view)
    ├─ RecognitionStatus         matching · resolving · confirm · no-match · error
    ├─ ManualSearch              typed name fallback
-   ├─ CardViewport              3D card, tilt, swipe, flip, gyro, reset       (result view)
+   ├─ CardViewport              3D card, tilt, flip, gyro                     (result view)
    ├─ PrintingCarousel          printing nav, set index, prices, links
    └─ ComboList → ComboItem     top 3 + expanded list
       └─ CardModal              full-size card preview
@@ -130,7 +130,7 @@ page.tsx
   - Responses are capped at 6 MB and parsed with defensive JSON readers.
   - Upstream 404/400 map to 404, 429 to 429, timeouts to 504, and other failures to 502.
 - **Known limits:**
-  - The index covers artwork, so reprints sharing art resolve to one representative printing. You can then swipe to yours.
+  - The index covers artwork, so reprints sharing art resolve to one representative printing. You can then step through the printings to yours.
   - Strong perspective (a card photographed at a steep angle) and very dark art held at more than ~6° can fail to match. They fail by not matching, not by matching wrong.
   - New sets need the index rebuilt.
   - Per-frame work is about 50 ms on a desktop, so expect roughly 2–4 matches per second on a phone.
@@ -145,7 +145,7 @@ page.tsx
 - `scanner.ts`: guide geometry, card placements (coarse/refine), motion/texture/sharpness, placement hashing
 - `RecognitionStatus.tsx`, `ManualSearch.tsx`: recognition feedback and typed fallback
 - `StorePrices.tsx`: per-store price tiles for the selected printing
-- `CardViewport.tsx`, `PrintingCarousel.tsx`, `ComboList.tsx`: result views
+- `CardViewport.tsx` (3D card with tilt and flip), `PrintingCarousel.tsx`, `ComboList.tsx`: result views
 - `CardModal.tsx`: full-size card preview for combo cards
 - `scryfall.ts`, `combos.ts`: client fetchers for the internal API routes, formatting
 - `types.ts`, `data.ts`: prototype types and tunable constants (with the measurements behind them)

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, type MouseEvent } from "react";
 import type { ComboCard } from "./types";
 
@@ -11,11 +11,10 @@ const MotionDialog = motion.create("dialog");
 
 /**
  * Full-screen native dialog showing one card. Clicking or tapping anywhere except the card closes it, as
- * does Escape. Fades in/out with easeOut; the real dialog.close() runs after the exit animation.
+ * does Escape. Fades in/out with easeOut (no scale, which keeps the card crisp); dialog.close() runs after the exit animation.
  */
 export function CardModal({ card, onClose }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const reduced = useReducedMotion() ?? false;
   const open = card !== null;
   const src = card?.largeImage ?? card?.image ?? null;
 
@@ -56,20 +55,15 @@ export function CardModal({ card, onClose }: Props) {
           className="fixed inset-0 m-0 flex h-dvh max-h-none w-full max-w-none items-center justify-center bg-background/85 p-6 backdrop:bg-transparent"
         >
           <button type="button" onClick={onClose} className="sr-only">Close</button>
-          <motion.div
-            initial={{ scale: reduced ? 1 : 0.96 }}
-            animate={{ scale: 1 }}
-            exit={{ scale: reduced ? 1 : 0.96 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="relative aspect-63/88 w-[min(88vw,22rem)] max-h-[85dvh]"
-          >
+          {/* No scale animation: a transformed layer can be rasterized soft; the dialog's fade is enough. */}
+          <div className="relative aspect-63/88 w-[min(88vw,24rem)] max-h-[85dvh]">
             {src ? (
               <Image
                 src={src}
                 alt={card.name}
                 fill
                 unoptimized
-                sizes="(max-width: 640px) 88vw, 352px"
+                sizes="(max-width: 640px) 88vw, 384px"
                 className="rounded-[4.75%/3.4%] object-contain shadow-2xl"
               />
             ) : (
@@ -77,7 +71,7 @@ export function CardModal({ card, onClose }: Props) {
                 No image for {card.name}
               </p>
             )}
-          </motion.div>
+          </div>
         </MotionDialog>
       )}
     </AnimatePresence>

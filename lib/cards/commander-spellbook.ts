@@ -22,7 +22,8 @@ function toCard(use: Json): ComboCard {
     name: str(card.name) ?? "Unknown card",
     oracleId: str(card.oracleId),
     image: str(card.imageUriFrontSmall),
-    largeImage: str(card.imageUriFrontLarge) ?? str(card.imageUriFrontPng) ?? str(card.imageUriFrontNormal),
+    // PNG is Scryfall's sharpest scan (744×1040, lossless); "Large" is a 672px webp that looks soft at modal size.
+    largeImage: str(card.imageUriFrontPng) ?? str(card.imageUriFrontLarge) ?? str(card.imageUriFrontNormal),
     zones: arr(use.zoneLocations).map((z) => ZONES[String(z)] ?? "").filter(Boolean),
   };
 }
@@ -53,7 +54,7 @@ export function getCombos(oracleId: string, cardName: string, offset: number, li
   const name = cardName.split(" // ")[0].replace(/"/g, "").trim().slice(0, 141);
   const safeLimit = Math.min(Math.max(1, Math.floor(limit)), MAX_COMBO_PAGE);
   const safeOffset = Math.max(0, Math.floor(offset));
-  return cached(`combos:${oracleId}:${safeOffset}:${safeLimit}`, ONE_HOUR, async () => {
+  return cached(`combos:v2:${oracleId}:${safeOffset}:${safeLimit}`, ONE_HOUR, async () => {
     const q = encodeURIComponent(`card:"${name}"`);
     const page = obj(await fetchJson(`${API}/variants/?q=${q}&ordering=-popularity&limit=${safeLimit}&offset=${safeOffset}`, SERVICE, 15000));
     const combos = arr(page.results)
