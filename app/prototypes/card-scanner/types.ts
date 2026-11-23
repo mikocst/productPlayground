@@ -1,6 +1,6 @@
-import type { CardIdentity, CardResponse, Combo } from "@/lib/cards/types";
+import type { CardIdentity, CardKingdomResponse, CardResponse, Combo } from "@/lib/cards/types";
 
-export type { CardFace, CardIdentity, CardResponse, Combo, ComboCard, Printing, PrintPrices, RecognizeResponse, CombosResponse } from "@/lib/cards/types";
+export type { CardFace, CardIdentity, CardKingdomOffer, CardKingdomResponse, CardResponse, Combo, ComboCard, Printing, PrintPrices, RecognizeResponse, CombosResponse } from "@/lib/cards/types";
 
 export type Recognition =
   | { phase: "idle" }
@@ -32,3 +32,11 @@ export type ScanHint = "loading" | "searching" | "moving" | "matching" | "surfac
 export type ArtCandidate = { printingId: string; oracleId: string; name: string; distance: number };
 
 export type CameraStatus = "idle" | "starting" | "live" | "denied" | "unsupported" | "error";
+
+/** A store button: its product page and the prices to show on it. */
+export type StoreOffer = { store: string; url: string | null; rows: { label: string; value: string }[] };
+
+/** Card Kingdom prices for one printing, keyed so a stale response is never shown for another printing. */
+export type CardKingdomState =
+  | { printingId: string; status: "ready"; data: CardKingdomResponse }
+  | { printingId: string; status: "error" };

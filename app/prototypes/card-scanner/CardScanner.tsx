@@ -6,12 +6,13 @@ import { CameraScanner } from "./CameraScanner";
 import { CardViewport } from "./CardViewport";
 import { ComboList } from "./ComboList";
 import { fetchCombos } from "./combos";
-import { COMBO_PAGE, COMBO_PREVIEW, EMPTY_COMBOS, SURPRISE_CARDS } from "./data";
+import { COMBO_PAGE, COMBO_PREVIEW, EMPTY_COMBOS } from "./data";
 import { ManualSearch } from "./ManualSearch";
 import { PrintingCarousel } from "./PrintingCarousel";
 import { RecognitionStatus } from "./RecognitionStatus";
-import { errorMessage, fetchCard, recognizeName } from "./scryfall";
-import type { ArtCandidate, CardIdentity, CardState, ComboState, Recognition } from "./types";
+import { errorMessage, fetchCard, fetchCardKingdom, recognizeName } from "./scryfall";
+import { StorePrices } from "./StorePrices";
+import type { ArtCandidate, CardIdentity, CardKingdomState, CardState, ComboState, Recognition } from "./types";
 
 const quiet = "border border-border bg-card text-foreground hover:bg-muted";
 const link = "text-primary-bright underline-offset-4 hover:underline";
@@ -34,7 +35,7 @@ export function CardScanner() {
   const [printIndex, setPrintIndex] = useState(0);
   const [direction, setDirection] = useState(1);
   const [combos, setCombos] = useState<ComboState>(EMPTY_COMBOS);
-  const [resetSignal, setResetSignal] = useState(0);
+  const [cardKingdom, setCardKingdom] = useState<CardKingdomState | null>(null);
   const lookupRef = useRef<AbortController | null>(null);
   const cardRef = useRef<AbortController | null>(null);
   const comboRef = useRef<AbortController | null>(null);
@@ -127,6 +128,18 @@ export function CardScanner() {
     return () => window.clearTimeout(timer);
   }, [openCard]);
 
+  // Card Kingdom prices for the selected printing. Results are keyed by printing id, so a slow response
+  // never shows under a different printing and "loading" is simply "no result for this printing yet".
+  const selectedPrintingId = card.status === "ready" ? card.data.printings[printIndex]?.id ?? null : null;
+  useEffect(() => {
+    if (!selectedPrintingId) return;
+    const controller = new AbortController();
+    fetchCardKingdom(selectedPrintingId, controller.signal)
+      .then((data) => setCardKingdom({ printingId: selectedPrintingId, status: "ready", data }))
+      .catch(() => { if (!controller.signal.aborted) setCardKingdom({ printingId: selectedPrintingId, status: "error" }); });
+    return () => controller.abort();
+  }, [selectedPrintingId]);
+
   useEffect(() => () => {
     lookupRef.current?.abort();
     cardRef.current?.abort();
@@ -152,33 +165,15 @@ export function CardScanner() {
     writeUrl(null, null);
   }
 
-  function reset() {
-    lookupRef.current?.abort();
-    setRecognition({ phase: "idle" });
-    setResetSignal((value) => value + 1);
-    if (card.status !== "ready") return;
-    selectPrinting(0);
-    setCombos((prev) => ({ ...prev, expanded: false }));
-  }
-
-  function surprise() {
-    const current = card.status === "ready" ? card.data.card.name : "";
-    const pool = SURPRISE_CARDS.filter((name) => name !== current);
-    resolveName(pool[Math.floor(Math.random() * pool.length)]);
-  }
-
   const busy = recognition.phase === "reading" || recognition.phase === "resolving";
   const oracleId = card.status === "ready" ? card.data.card.oracleId : null;
+  const ckForSelection = cardKingdom && cardKingdom.printingId === selectedPrintingId ? cardKingdom : null;
 
   return (
     <main className="mx-auto max-w-2xl space-y-6 px-5 py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Card Scanner</h1>
-        <div className="flex gap-2 whitespace-nowrap">
-          {card.status !== "empty" && <Button onClick={scanAnother} className={quiet}>Scan</Button>}
-          <Button onClick={reset} className={quiet}>Reset</Button>
-          <Button onClick={surprise} disabled={busy}>Surprise me</Button>
-        </div>
+        {card.status !== "empty" && <Button onClick={scanAnother} className={quiet}>Scan</Button>}
       </header>
 
       {card.status === "empty" && (
@@ -220,26 +215,29 @@ export function CardScanner() {
 
       {card.status === "ready" && (
         <>
+          <div>
+            <p className="text-sm text-muted-foreground">{card.data.card.typeLine}</p>
+            <p className="text-2xl font-semibold leading-tight">{card.data.card.name}</p>
+          </div>
+          <StorePrices
+            printing={card.data.printings[printIndex]}
+            cardKingdom={ckForSelection?.status === "ready" ? ckForSelection.data : null}
+            cardKingdomStatus={ckForSelection?.status ?? "loading"}
+          />
           <div className="grid grid-cols-1 items-start gap-6 sm:grid-cols-2">
             <div className="min-w-0 sm:sticky sm:top-6">
               <CardViewport
                 printing={card.data.printings[printIndex]}
                 cardName={card.data.card.name}
                 direction={direction}
-                resetSignal={resetSignal}
                 onPrev={() => selectPrinting(printIndex - 1)}
                 onNext={() => selectPrinting(printIndex + 1)}
               />
             </div>
-            <div className="min-w-0 space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground">{card.data.card.typeLine}</p>
-                <p className="text-2xl font-semibold leading-tight">{card.data.card.name}</p>
-              </div>
+            <div className="min-w-0">
               <PrintingCarousel
                 printings={card.data.printings}
                 index={printIndex}
-                fetchedAt={card.data.fetchedAt}
                 truncated={card.data.truncated}
                 onSelect={selectPrinting}
               />
@@ -263,7 +261,8 @@ export function CardScanner() {
       )}
 
       <footer className="border-t border-border pt-4 text-xs text-muted-foreground">
-        Card data, images, and prices from <a className={link} href="https://scryfall.com" target="_blank" rel="noopener noreferrer">Scryfall</a>.
+        Card data, images, and TCGplayer, Cardmarket, and Cardhoarder prices from <a className={link} href="https://scryfall.com" target="_blank" rel="noopener noreferrer">Scryfall</a>.
+        Card Kingdom prices from <a className={link} href="https://www.cardkingdom.com" target="_blank" rel="noopener noreferrer">Card Kingdom</a>.
         Combos from <a className={link} href="https://commanderspellbook.com" target="_blank" rel="noopener noreferrer">Commander Spellbook</a>.
         Magic: The Gathering card names and art © Wizards of the Coast. This prototype is not affiliated with or endorsed by them.
       </footer>

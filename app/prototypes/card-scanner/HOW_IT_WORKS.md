@@ -3,7 +3,13 @@
 ## What It Does
 Hold a Magic: The Gathering card up to the camera and it is recognized automatically by its artwork. There is no capture button and no text reading. The camera frame is matched against a perceptual-hash index of every unique paper artwork on Scryfall.
 
-The card then opens as a tiltable 3D card at the matched printing. You can swipe through every printing with set, rarity, finish, and daily prices, and see the top three Commander Spellbook combos with an expandable full list. Photo upload and typed search are fallbacks.
+The card then opens at the matched printing. The result view shows, top to bottom:
+- the card name;
+- a price button per store (TCGplayer, Card Kingdom, Cardmarket, Cardhoarder), each showing that store's prices for the selected printing and linking to its product page;
+- the tiltable 3D card next to every printing (set, rarity, finish);
+- the top three Commander Spellbook combos with an expandable full list.
+
+Photo upload and typed search are fallbacks.
 
 Matching is tuned so a wrong card is never opened silently:
 - One frame opens a card only when the match is very close and far ahead of every other card.
@@ -34,6 +40,9 @@ Matching is tuned so a wrong card is never opened silently:
 
    Typed name ─▶ POST /api/card-scanner/recognize (Scryfall fuzzy + autocomplete) ─▶ open
    Combos     ─▶ GET /api/card-scanner/combos?oracleId&offset&limit (Commander Spellbook)
+   Prices     ─▶ TCGplayer / Cardmarket / Cardhoarder: from the printing (Scryfall's daily store prices)
+                 Card Kingdom: GET /api/card-scanner/card-kingdom/:printingId
+                   (Card Kingdom's public price list, ~70 MB, cached server-side for 6 h as a lookup by Scryfall id)
 ```
 
 ## Frontend / API
@@ -66,13 +75,20 @@ Matching is tuned so a wrong card is never opened silently:
   - Mouse hover tilts up to 8°; gyroscope tilt is opt-in on touch devices.
   - Double-faced printings get Flip (and the F key); arrow keys change printing.
   - Reduced motion removes hover and gyroscope tilt and turns slides into fades.
-- **Printing carousel:** prev/next, a set-code index, rarity/finish/date badges, USD / foil / etched / EUR / MTGO prices labeled as Scryfall daily data, and Scryfall/marketplace links.
+- **Store prices** (`StorePrices`):
+  - One tile per store for the selected printing, linking to that store's product page.
+  - TCGplayer shows Normal / Foil / Etched (USD), Cardmarket Normal / Foil (EUR), and Cardhoarder MTGO tix. These are Scryfall's daily prices from those stores; their own APIs require approved developer keys.
+  - Card Kingdom shows Normal / Foil retail from its own price list, marked "sold out" when out of stock.
+  - Card Kingdom loads per printing and is keyed by printing id, so a slow response never appears under another printing.
+  - The tiles are labeled as not live quotes.
+- **Printing carousel:** prev/next, a set-code strip, and rarity/finish/date badges. The strip starts at the left and only scrolls when the selected set would be hidden, bringing it to the left edge (no centering, no page scroll).
 - **Combos:** the top 3 by Spellbook deck popularity. "Show all combos" pages by 20 from the API's next offset.
-- **Controls:** Scan (back to the camera), Reset (first printing, neutral view, combos collapsed, status cleared), and Surprise me (a random combo staple).
+- **Controls:** Scan (back to the camera) in the header and Reset view under the card. Reset and Surprise me controls were removed at the owner's request.
 - **API routes:** the browser never calls Scryfall or Commander Spellbook APIs directly.
   - `POST /recognize` resolves typed names: fuzzy lookup, then autocomplete on shrinking prefixes for typos.
   - `GET /card/[oracleId]` returns every printing.
   - `GET /combos` resolves the card name server-side.
+  - `GET /card-kingdom/[printingId]` returns Card Kingdom Normal/Foil offers. The first request after a cold start downloads the list (~4 s); later ones are instant.
   - All routes return `{ error }` with 400/404/429/502/504/500 and in-memory TTL caches.
   - The art index is a static file; card images load from Scryfall's image CDN.
 
@@ -80,7 +96,7 @@ Matching is tuned so a wrong card is never opened silently:
 No AI models. Recognition is classical perceptual hashing (DCT pHash on luma and chroma) with nearest-neighbour search.
 
 ## Key Dependencies
-Next.js 16 route handlers, React 19, and motion. esbuild and Playwright are used by the index builder. The Scryfall bulk data, image CDN, and API, and the Commander Spellbook API supply the data. Shared `Button`, `Badge`, `cn`, `useHydrated`, and semantic theme tokens.
+Next.js 16 route handlers, React 19, and motion. Card Kingdom's public price list supplies CK prices. esbuild and Playwright are used by the index builder. The Scryfall bulk data, image CDN, and API, and the Commander Spellbook API supply the data. Shared `Button`, `Badge`, `cn`, `useHydrated`, and semantic theme tokens.
 
 ## Component Tree
 ```text
@@ -122,6 +138,7 @@ page.tsx
 - `artIndex.ts`: index loading/decoding, nearest-artwork search, candidate merging
 - `scanner.ts`: guide geometry, card placements (coarse/refine), motion/texture/sharpness, placement hashing
 - `RecognitionStatus.tsx`, `ManualSearch.tsx`: recognition feedback and typed fallback
+- `StorePrices.tsx`: per-store price tiles for the selected printing
 - `CardViewport.tsx`, `PrintingCarousel.tsx`, `ComboList.tsx`: result views
 - `scryfall.ts`, `combos.ts`: client fetchers for the internal API routes, formatting
 - `types.ts`, `data.ts`: prototype types and tunable constants (with the measurements behind them)

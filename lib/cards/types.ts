@@ -15,7 +15,8 @@ export type PrintPrices = {
   tix: string | null;
 };
 
-export type PurchaseLink = { label: string; url: string };
+/** Product pages on the stores whose prices Scryfall reports (TCGplayer: USD, Cardmarket: EUR, Cardhoarder: MTGO tix). */
+export type StoreLinks = { tcgplayer: string | null; cardmarket: string | null; cardhoarder: string | null };
 
 export type Printing = {
   id: string;
@@ -29,7 +30,7 @@ export type Printing = {
   faces: CardFace[];
   prices: PrintPrices;
   scryfallUrl: string;
-  purchaseLinks: PurchaseLink[];
+  storeLinks: StoreLinks;
 };
 
 export type CardIdentity = {
@@ -84,5 +85,9 @@ export type CombosResponse = {
   nextOffset: number | null;
   fetchedAt: string;
 };
+
+/** Card Kingdom retail offers for one printing, from Card Kingdom's public price list. */
+export type CardKingdomOffer = { price: string; url: string; inStock: boolean };
+export type CardKingdomResponse = { nonfoil: CardKingdomOffer | null; foil: CardKingdomOffer | null; updatedAt: string | null };
 
 export type ApiError = { error: string };

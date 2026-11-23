@@ -66,22 +66,6 @@ export const MAX_SCENE_FRAMES = 28;
 /** Mean frame change that counts as a new scene after a guess was offered. */
 export const SCENE_CHANGE_DIFF = 18;
 
-/** Well-known Commander staples with documented combos, used by Surprise me. */
-export const SURPRISE_CARDS = [
-  "Sol Ring",
-  "Dramatic Reversal",
-  "Thassa's Oracle",
-  "Kiki-Jiki, Mirror Breaker",
-  "Walking Ballista",
-  "Ashnod's Altar",
-  "Exquisite Blood",
-  "Basalt Monolith",
-  "Heliod, Sun-Crowned",
-  "Isochron Scepter",
-  "Dockside Extortionist",
-  "Delver of Secrets",
-];
-
 export const EMPTY_COMBOS: ComboState = {
   oracleId: null,
   items: [],

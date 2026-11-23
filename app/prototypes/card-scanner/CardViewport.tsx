@@ -13,7 +13,6 @@ type Props = {
   printing: Printing;
   cardName: string;
   direction: number;
-  resetSignal: number;
   onPrev: () => void;
   onNext: () => void;
 };
@@ -46,7 +45,7 @@ function Face({ src, alt, back }: { src: string | null; alt: string; back?: bool
   );
 }
 
-export function CardViewport({ printing, cardName, direction, resetSignal, onPrev, onNext }: Props) {
+export function CardViewport({ printing, cardName, direction, onPrev, onNext }: Props) {
   const reduced = useReducedMotion() ?? false;
   const hydrated = useHydrated();
   const tiltX = useMotionValue(0);
@@ -58,7 +57,7 @@ export function CardViewport({ printing, cardName, direction, resetSignal, onPre
   const rotateY = useTransform(() => springY.get() + springFlip.get());
   const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   const gyroBase = useRef<number | null>(null);
-  const resetKey = `${printing.id}:${resetSignal}`;
+  const resetKey = printing.id;
   const [face, setFaceState] = useState({ key: resetKey, back: false });
   const flipped = face.key === resetKey && face.back;
   const [gyro, setGyro] = useState<"off" | "on" | "denied">("off");
@@ -81,7 +80,7 @@ export function CardViewport({ printing, cardName, direction, resetSignal, onPre
     if (reduced) springFlip.jump(back ? 180 : 0);
   }
 
-  // Reset rotation when the parent asks or the printing changes; `flipped` resets via resetKey.
+  // Reset rotation when the printing changes; `flipped` resets via resetKey.
   useEffect(() => {
     tiltX.set(0);
     tiltY.set(0);

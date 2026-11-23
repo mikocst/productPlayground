@@ -2,13 +2,12 @@
 // Scryfall asks for 50–100 ms between requests and a descriptive User-Agent (see http.ts).
 
 import { arr, cached, fetchJson, obj, sleep, str, UpstreamError, type Json } from "./http";
-import type { CardFace, CardIdentity, CardResponse, Printing, PurchaseLink } from "./types";
+import type { CardFace, CardIdentity, CardResponse, Printing } from "./types";
 
 const API = "https://api.scryfall.com";
 const SERVICE = "Scryfall";
 const TEN_MINUTES = 10 * 60 * 1000;
 const MAX_PRINT_PAGES = 5; // 175 per page → 875 printings, well above any real card
-const PURCHASE_LABELS: Record<string, string> = { tcgplayer: "TCGplayer", cardmarket: "Cardmarket", cardhoarder: "Cardhoarder" };
 
 export const ORACLE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,9 +31,7 @@ function toFaces(raw: Json): CardFace[] {
 function toPrinting(raw: Json): Printing {
   const prices = obj(raw.prices);
   const purchase = obj(raw.purchase_uris);
-  const purchaseLinks: PurchaseLink[] = Object.entries(PURCHASE_LABELS)
-    .map(([key, label]) => ({ label, url: str(purchase[key]) ?? "" }))
-    .filter((link) => link.url.startsWith("https://"));
+  const link = (key: string) => (str(purchase[key])?.startsWith("https://") ? str(purchase[key]) : null);
   return {
     id: str(raw.id) ?? "",
     set: (str(raw.set) ?? "").toUpperCase(),
@@ -54,7 +51,7 @@ function toPrinting(raw: Json): Printing {
       tix: str(prices.tix),
     },
     scryfallUrl: str(raw.scryfall_uri) ?? "https://scryfall.com",
-    purchaseLinks,
+    storeLinks: { tcgplayer: link("tcgplayer"), cardmarket: link("cardmarket"), cardhoarder: link("cardhoarder") },
   };
 }
 
