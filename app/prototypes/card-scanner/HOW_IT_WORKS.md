@@ -1,7 +1,7 @@
 # Card Scanner
 
 ## What It Does
-Identifies a Magic: The Gathering card from the phone camera (or an uploaded photo, or a typed name), shows it as a tiltable 3D card using its Scryfall image, lets you swipe through every printing with set, rarity, finish, and daily prices, and lists the top three Commander Spellbook combos with an expandable full list.
+Identifies a Magic: The Gathering card automatically as soon as it is held steady in the camera frame, with no capture button (or from an uploaded photo, or a typed name), shows it as a tiltable 3D card using its Scryfall image, lets you swipe through every printing with set, rarity, finish, and daily prices, and lists the top three Commander Spellbook combos with an expandable full list.
 
 Recognition is deliberately modest. It is OCR of the name line only. Foils, glare, steep angles, and stylized frames can miss. Low-confidence reads ask for confirmation, and misses offer suggestions plus manual search.
 
@@ -9,11 +9,15 @@ Recognition is deliberately modest. It is OCR of the name line only. Foils, glar
 ```text
  Camera (getUserMedia, rear)        Upload photo          Typed name
           |                              |                     |
-   guide-frame crop (cover math)   centered card crop          |
-          +--------------+---------------+                     |
+  auto-scan loop, every 200 ms:          |                     |
+   sample guide frame (36×50) + name band (160×14)            |
+   steady? (frame diff < 8) and text? (band edges ≥ 5%)       |
+   3 steady samples in a row ─┐    centered card crop          |
+          +--------------+----+----------+                     |
                          v                                     |
-          name band -> grayscale + contrast stretch            |
-                 -> normal + inverted canvases                 |
+          generous name band -> grayscale                      |
+                 -> locate text line (max edge-mass row run)   |
+                 -> contrast stretch, normal + inverted        |
                  -> Tesseract.js (single line, whitelist)      |
                  -> extractCandidates (<= 3)                   |
                          |                                     |
@@ -39,7 +43,15 @@ Recognition is deliberately modest. It is OCR of the name line only. Foils, glar
 ## Frontend / API
 - **State** lives in `CardScanner`: recognition phase, card load state, printing index and slide direction, combo list state, and a reset signal for the 3D view.
 - **Deep link:** `?card=<oracle id>&print=<scryfall id>` is written with `history.replaceState` and read after mount. No `useSearchParams`, so no Suspense boundary is needed and server/client first render match.
-- **Camera** starts only on tap. It asks for the rear camera (`facingMode: environment`) and stops all tracks on unmount. Denied, unsupported/insecure-context, and failed-start states each have a message plus upload/typed fallbacks.
+- **Camera:** it starts on tap, or automatically when the Permissions API reports camera access already granted. It asks for the rear camera (`facingMode: environment`) and stops all tracks on unmount (including a stream that arrives after unmount). Denied, unsupported/insecure-context, and failed-start states each have a message plus upload/typed fallbacks.
+- **Auto-scan:** there is no capture button. While the camera is live and no result/confirmation/error is showing, a loop samples the guide frame every 200 ms.
+  - OCR runs once 3 consecutive samples are steady and the name band has text-like edge density.
+  - The OCR model is warmed as soon as the camera goes live.
+  - Auto lookups are quiet: a miss leaves the UI untouched and retries after 700 ms.
+  - The 3rd miss on the same scene surfaces the no-match panel with suggestions, then waits until the scene changes (frame diff > 18) before trying again. Pointing at an unreadable object therefore costs at most 3 lookups.
+  - Low-confidence reads still pause on "Is this X?".
+  - Overlay guidance: "Fit the card…" → "Hold steady…" (frame and band turn primary) → "Reading card name…" → "Couldn't read the name…".
+  - All thresholds are in `data.ts`.
 - **3D card:** CSS 3D (`perspective`, `transform-3d`, `backface-hidden`) driven by motion springs (stiffness 300, damping 30).
   - Drag tilts up to 22°. A horizontal drag over 80px switches printing on release.
   - Mouse hover tilts up to 8°. Gyroscope tilt is opt-in on touch devices (iOS permission requested on tap).
@@ -70,7 +82,7 @@ No generative AI. On-device OCR runs through Tesseract.js (LSTM English model) i
 ```text
 page.tsx
 └─ CardScanner                  state, fetch orchestration, URL sync
-   ├─ CameraScanner             camera / upload / OCR      (scan view)
+   ├─ CameraScanner             camera, auto-scan loop, upload, OCR   (scan view)
    ├─ RecognitionStatus         reading · resolving · confirm · no-match · error
    ├─ ManualSearch              typed name fallback
    ├─ CardViewport              3D card, tilt, swipe, flip, gyro, reset   (result view)
@@ -80,14 +92,14 @@ page.tsx
 
 ## Error Handling
 - **Camera:** `NotAllowedError`/`SecurityError` show "blocked". No `mediaDevices` or an insecure context shows "needs HTTPS". `NotFoundError` shows "no camera". Anything else shows "couldn't start". Each has a retry, and Upload photo and typed search stay available.
-- **OCR:** worker or canvas failures show a recoverable message. Empty reads go to "no readable name". Low-similarity reads ask for confirmation with suggestions.
+- **OCR:** worker or canvas failures show a recoverable message and pause auto-scan until dismissed. Empty reads go to "no readable name". Low-similarity reads ask for confirmation with suggestions.
 - **Network:** each lookup has its own `AbortController`, so stale responses are ignored. Card-load failures show Retry / Back to scanner. Combo failures show Retry without hiding the card.
 - **Server:**
   - 8s timeouts (15s for Commander Spellbook), a 6 MB response cap, and defensive JSON readers (`obj/arr/str/num`).
   - Upstream 404/400 map to 404, 429 maps to 429, timeouts to 504, and other failures to 502.
   - Unknown errors return a generic 500.
 - **Known limits:**
-  - There is no automatic corner detection. The guide frame stands in for perspective correction.
+  - There is no automatic corner detection. The guide frame stands in for perspective correction; text-line localization tolerates a few percent of misalignment, but a card far smaller than the frame or well off-center will not read.
   - Uploaded photos assume the card roughly fills the image.
   - Printings are capped at 875 (shown as "N+").
   - Spellbook's name search is filtered to the exact oracle id, so a page can contain fewer than its size.
@@ -95,12 +107,12 @@ page.tsx
 ## File Structure
 - `page.tsx`: thin route entry
 - `CardScanner.tsx`: top-level state, data loading, URL sync, controls
-- `CameraScanner.tsx`: camera lifecycle, guide overlay, capture/upload → OCR
+- `CameraScanner.tsx`: camera lifecycle, guide overlay, auto-scan loop (steadiness + text detection), upload → OCR
 - `RecognitionStatus.tsx`, `ManualSearch.tsx`: recognition feedback and typed fallback
 - `CardViewport.tsx`: CSS 3D card with spring tilt, swipe, flip, gyroscope
 - `PrintingCarousel.tsx`: printing navigation, set index, prices, attribution links
 - `ComboList.tsx`: Commander Spellbook combos, expand/paginate
-- `scanner.ts`: frame geometry, name-band preprocessing, Tesseract helpers, candidate extraction
+- `scanner.ts`: frame geometry, frame sampling/diff/edge density, text-line localization, preprocessing, Tesseract helpers, candidate extraction
 - `scryfall.ts`, `combos.ts`: client fetchers for the internal API routes, price/label formatting
 - `types.ts`, `data.ts`: prototype types and tunable constants
 - `app/api/card-scanner/{recognize,card/[oracleId],combos}/route.ts`: server routes

@@ -11,7 +11,7 @@ import { ManualSearch } from "./ManualSearch";
 import { PrintingCarousel } from "./PrintingCarousel";
 import { RecognitionStatus } from "./RecognitionStatus";
 import { errorMessage, fetchCard, recognizeName } from "./scryfall";
-import type { CardIdentity, CardState, ComboState, NameSource, Recognition } from "./types";
+import type { CardIdentity, CardState, ComboState, NameSource, Recognition, ScanOutcome } from "./types";
 
 const quiet = "border border-border bg-card text-foreground hover:bg-muted";
 const link = "text-primary-bright underline-offset-4 hover:underline";
@@ -89,29 +89,44 @@ export function CardScanner() {
     }
   }, [loadCombos]);
 
-  const resolveName = useCallback(async (candidates: string[], source: NameSource, read = candidates[0] ?? "") => {
+  /**
+   * Resolves name candidates. `quiet` lookups come from auto-scan: they show no progress and a miss
+   * leaves the UI untouched so the camera loop can simply try again.
+   */
+  const resolveName = useCallback(async (candidates: string[], source: NameSource, read = candidates[0] ?? "", quiet = false): Promise<ScanOutcome> => {
     lookupRef.current?.abort();
     if (!candidates.length) {
-      setRecognition({ phase: "no-match", read, suggestions: [] });
-      return;
+      if (!quiet) setRecognition({ phase: "no-match", read, suggestions: [] });
+      return "miss";
     }
     const controller = new AbortController();
     lookupRef.current = controller;
-    setRecognition({ phase: "resolving", query: candidates[0] });
+    if (!quiet) setRecognition({ phase: "resolving", query: candidates[0] });
     try {
       const result = await recognizeName(candidates, controller.signal);
       if (result.status === "no-match") {
-        setRecognition({ phase: "no-match", read, suggestions: result.suggestions });
-      } else if (source === "typed" || result.confidence >= OCR_CONFIDENT) {
-        openCard(result.card.oracleId, null, result.card.name);
-      } else {
-        setRecognition({ phase: "confirm", card: result.card, read: result.matchedFrom, confidence: result.confidence, suggestions: result.suggestions });
+        if (!quiet) setRecognition({ phase: "no-match", read, suggestions: result.suggestions });
+        return "miss";
       }
+      if (source === "typed" || result.confidence >= OCR_CONFIDENT) {
+        openCard(result.card.oracleId, null, result.card.name);
+        return "opened";
+      }
+      setRecognition({ phase: "confirm", card: result.card, read: result.matchedFrom, confidence: result.confidence, suggestions: result.suggestions });
+      return "confirm";
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return "aborted";
       setRecognition({ phase: "error", message: errorMessage(error) });
+      return "error";
     }
   }, [openCard]);
+
+  const readScan = useCallback(
+    (candidates: string[], raw: string, quiet: boolean) => resolveName(candidates, "ocr", raw, quiet),
+    [resolveName],
+  );
+  const scanFailed = useCallback((message: string) => setRecognition({ phase: "error", message }), []);
+  const scanReading = useCallback(() => setRecognition({ phase: "reading" }), []);
 
   // Deep links: ?card=<oracle id>&print=<scryfall id>. Read after mount so server and first client render match.
   useEffect(() => {
@@ -179,10 +194,10 @@ export function CardScanner() {
       {card.status === "empty" && (
         <div className="space-y-4">
           <CameraScanner
-            busy={busy}
-            onReading={() => setRecognition({ phase: "reading" })}
-            onRead={(candidates, raw) => resolveName(candidates, "ocr", raw.split("\n")[0] ?? "")}
-            onFailure={(message) => setRecognition({ phase: "error", message })}
+            paused={recognition.phase !== "idle"}
+            onReading={scanReading}
+            onRead={readScan}
+            onFailure={scanFailed}
           />
           <RecognitionStatus
             recognition={recognition}

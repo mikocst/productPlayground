@@ -27,6 +27,12 @@ export type ComboState = {
   expanded: boolean;
 };
 
+/** Result of resolving a set of name candidates, reported back to the auto-scan loop. */
+export type ScanOutcome = "opened" | "confirm" | "miss" | "error" | "aborted";
+
+/** Live guidance shown over the camera while auto-scanning. */
+export type ScanHint = "searching" | "steady" | "reading" | "retry";
+
 export type CameraStatus = "idle" | "starting" | "live" | "reading" | "denied" | "unsupported" | "error";
 
 /** Normalized rectangle in 0..1 units of a source image. */

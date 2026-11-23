@@ -10,8 +10,11 @@ export const COMBO_PAGE = 20;
 /** Physical MTG card ratio (63 × 88 mm). */
 export const CARD_RATIO = 63 / 88;
 
-/** Name line inside the card frame, as a fraction of card width/height. Excludes the mana cost corner. */
-export const NAME_BAND: Region = { x: 0.06, y: 0.045, width: 0.74, height: 0.063 };
+/**
+ * Generous name-line search area inside the card frame (fraction of card width/height), excluding the
+ * mana-cost corner. The text line itself is located inside it, so the card need not be perfectly aligned.
+ */
+export const NAME_BAND: Region = { x: 0.055, y: 0.03, width: 0.75, height: 0.1 };
 
 /** Guide frame height as a fraction of the camera viewport height. */
 export const FRAME_HEIGHT = 0.86;
@@ -24,6 +27,21 @@ export const GYRO_TILT = 14;
 export const SWIPE_DISTANCE = 80;
 
 export const TILT_SPRING = { stiffness: 300, damping: 30 };
+
+/** Auto-scan: how often the live frame is sampled. */
+export const AUTO_TICK_MS = 200;
+/** Mean grayscale change (0–255) between samples below which the frame counts as steady. */
+export const STABLE_DIFF = 8;
+/** Consecutive steady samples with text in the name band before OCR runs (~0.6 s). */
+export const STABLE_TICKS = 3;
+/** Fraction of strong horizontal edges in the name band that suggests printed text is there. */
+export const MIN_BAND_EDGES = 0.05;
+/** Mean change that counts as a new scene, re-arming attempts after misses. */
+export const SCENE_CHANGE_DIFF = 18;
+/** Quiet OCR attempts per scene; the last miss surfaces suggestions. */
+export const MAX_SCENE_ATTEMPTS = 3;
+/** Pause between attempts on the same scene. */
+export const RETRY_DELAY_MS = 700;
 
 export const OCR_WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-";
 /** Below this similarity, an OCR match is shown for confirmation instead of opened. */

@@ -5,7 +5,7 @@ import type { Worker } from "tesseract.js";
 import { CARD_RATIO, FRAME_HEIGHT, NAME_BAND, OCR_WHITELIST } from "./data";
 import type { OcrCandidate, Region } from "./types";
 
-type Rect = { x: number; y: number; width: number; height: number };
+export type Rect = { x: number; y: number; width: number; height: number };
 
 /** Guide frame inside the camera element, in element pixels (matches the CSS overlay). */
 export function guideFrame(elementWidth: number, elementHeight: number): Rect {
@@ -79,32 +79,108 @@ export function extractCandidates(results: OcrCandidate[]): string[] {
   return out.slice(0, 3);
 }
 
+/** Mean absolute difference between two equally sized grayscale samples (0–255). */
+export function meanAbsDiff(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
+  if (a.length !== b.length || a.length === 0) return 255;
+  let total = 0;
+  for (let i = 0; i < a.length; i++) total += Math.abs(a[i] - b[i]);
+  return total / a.length;
+}
+
+/** Fraction of horizontally adjacent pixel pairs with a strong step — high where text is printed. */
+export function edgeDensity(gray: Uint8ClampedArray, width: number, height: number, step = 28): number {
+  if (width < 2 || height < 1) return 0;
+  let edges = 0;
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 1; x < width; x++) if (Math.abs(gray[row + x] - gray[row + x - 1]) > step) edges++;
+  }
+  return edges / ((width - 1) * height);
+}
+
 // ---------- Browser-only helpers ----------
 
-const TARGET_BAND_HEIGHT = 96;
+/** Draws `rect` of `source` into a small canvas and returns its grayscale pixels. */
+export function sampleGray(context: CanvasRenderingContext2D, source: CanvasImageSource, rect: Rect, width: number, height: number): Uint8ClampedArray {
+  const canvas = context.canvas;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  context.drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, width, height);
+  const data = context.getImageData(0, 0, width, height).data;
+  const gray = new Uint8ClampedArray(width * height);
+  for (let i = 0; i < gray.length; i++) {
+    const p = i * 4;
+    gray[i] = data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114;
+  }
+  return gray;
+}
 
-/** Crops the name band from a source image into grayscale, contrast-stretched normal and inverted canvases. */
+/**
+ * Finds the printed name inside a generous band: the run of rows with the most horizontal-edge mass.
+ * Returns padded row bounds, or the whole band when nothing stands out.
+ */
+export function locateTextLine(gray: Uint8ClampedArray, width: number, height: number): { start: number; end: number } {
+  const whole = { start: 0, end: height };
+  if (width < 2 || height < 4) return whole;
+  const raw = new Array<number>(height).fill(0);
+  for (let y = 0; y < height; y++) {
+    let edges = 0;
+    const row = y * width;
+    for (let x = 1; x < width; x++) if (Math.abs(gray[row + x] - gray[row + x - 1]) > 28) edges++;
+    raw[y] = edges / (width - 1);
+  }
+  const profile = raw.map((_, y) => (raw[Math.max(0, y - 1)] + raw[y] + raw[Math.min(height - 1, y + 1)]) / 3);
+  const peak = Math.max(...profile);
+  if (peak < 0.03) return whole;
+
+  const threshold = peak * 0.35;
+  let best = { start: 0, end: 0, mass: 0 };
+  let start = -1;
+  let mass = 0;
+  for (let y = 0; y <= height; y++) {
+    if (y < height && profile[y] >= threshold) {
+      if (start < 0) start = y;
+      mass += profile[y];
+    } else if (start >= 0) {
+      if (mass > best.mass) best = { start, end: y, mass };
+      start = -1;
+      mass = 0;
+    }
+  }
+  const pad = Math.max(4, Math.round((best.end - best.start) * 0.3));
+  return { start: Math.max(0, best.start - pad), end: Math.min(height, best.end + pad) };
+}
+
+const BAND_DRAW_HEIGHT = 160;
+
+/**
+ * Crops the name band, isolates the text line inside it, and returns grayscale, contrast-stretched
+ * normal and inverted canvases (inverted helps light-on-dark title bars).
+ */
 export function prepareNameBand(source: CanvasImageSource, band: Rect): HTMLCanvasElement[] {
-  const scale = TARGET_BAND_HEIGHT / Math.max(1, band.height);
+  const scale = BAND_DRAW_HEIGHT / Math.max(1, band.height);
   const width = Math.max(1, Math.round(band.width * scale));
-  const height = TARGET_BAND_HEIGHT;
   const canvas = document.createElement("canvas");
   canvas.width = width;
-  canvas.height = height;
+  canvas.height = BAND_DRAW_HEIGHT;
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) return [];
   context.imageSmoothingQuality = "high";
-  context.drawImage(source, band.x, band.y, band.width, band.height, 0, 0, width, height);
+  context.drawImage(source, band.x, band.y, band.width, band.height, 0, 0, width, BAND_DRAW_HEIGHT);
 
-  const image = context.getImageData(0, 0, width, height);
-  const gray = new Uint8ClampedArray(width * height);
-  const histogram = new Array<number>(256).fill(0);
-  for (let i = 0; i < gray.length; i++) {
+  const image = context.getImageData(0, 0, width, BAND_DRAW_HEIGHT);
+  const full = new Uint8ClampedArray(width * BAND_DRAW_HEIGHT);
+  for (let i = 0; i < full.length; i++) {
     const p = i * 4;
-    const value = Math.round(image.data[p] * 0.299 + image.data[p + 1] * 0.587 + image.data[p + 2] * 0.114);
-    gray[i] = value;
-    histogram[value]++;
+    full[i] = image.data[p] * 0.299 + image.data[p + 1] * 0.587 + image.data[p + 2] * 0.114;
   }
+  const line = locateTextLine(full, width, BAND_DRAW_HEIGHT);
+  const height = Math.max(1, line.end - line.start);
+  const gray = full.subarray(line.start * width, line.end * width);
+  const histogram = new Array<number>(256).fill(0);
+  for (let i = 0; i < gray.length; i++) histogram[gray[i]]++;
   const percentile = (fraction: number) => {
     let count = 0;
     for (let v = 0; v < 256; v++) {
