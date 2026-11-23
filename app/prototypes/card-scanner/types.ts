@@ -2,13 +2,11 @@ import type { CardIdentity, CardResponse, Combo } from "@/lib/cards/types";
 
 export type { CardFace, CardIdentity, CardResponse, Combo, ComboCard, Printing, PrintPrices, RecognizeResponse, CombosResponse } from "@/lib/cards/types";
 
-export type NameSource = "ocr" | "typed";
-
 export type Recognition =
   | { phase: "idle" }
   | { phase: "reading" }
   | { phase: "resolving"; query: string }
-  | { phase: "confirm"; card: CardIdentity; read: string; confidence: number; suggestions: string[] }
+  | { phase: "confirm"; card: CardIdentity; printId: string | null; read: string; suggestions: string[] }
   | { phase: "no-match"; read: string; suggestions: string[] }
   | { phase: "error"; message: string };
 
@@ -27,15 +25,10 @@ export type ComboState = {
   expanded: boolean;
 };
 
-/** Result of resolving a set of name candidates, reported back to the auto-scan loop. */
-export type ScanOutcome = "opened" | "confirm" | "miss" | "error" | "aborted";
-
 /** Live guidance shown over the camera while auto-scanning. */
-export type ScanHint = "searching" | "steady" | "reading" | "retry";
+export type ScanHint = "loading" | "searching" | "moving" | "matching" | "surfaced";
 
-export type CameraStatus = "idle" | "starting" | "live" | "reading" | "denied" | "unsupported" | "error";
+/** One artwork from the hash index and its Hamming distance (0–128) to the camera frame. */
+export type ArtCandidate = { printingId: string; oracleId: string; name: string; distance: number };
 
-/** Normalized rectangle in 0..1 units of a source image. */
-export type Region = { x: number; y: number; width: number; height: number };
-
-export type OcrCandidate = { text: string; confidence: number };
+export type CameraStatus = "idle" | "starting" | "live" | "denied" | "unsupported" | "error";

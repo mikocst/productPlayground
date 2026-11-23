@@ -29,6 +29,12 @@ function levenshtein(a: string, b: string): number {
   return previous[b.length];
 }
 
+/** Similarity tolerant of trailing OCR noise: also compares a same-length prefix of the read text. */
+export function readSimilarity(read: string, cardName: string): number {
+  const front = cardName.split(" // ")[0];
+  return Math.max(nameSimilarity(read, cardName), nameSimilarity(read.slice(0, front.length), front));
+}
+
 /** 0..1 similarity between a candidate and a card name. Double-faced names match either face. */
 export function nameSimilarity(candidate: string, cardName: string): number {
   const a = normalizeName(candidate);

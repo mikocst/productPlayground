@@ -6,7 +6,7 @@ import type { CardIdentity, Recognition } from "./types";
 
 type Props = {
   recognition: Recognition;
-  onOpen: (card: CardIdentity) => void;
+  onOpen: (card: CardIdentity, printId: string | null) => void;
   onChoose: (name: string) => void;
   onDismiss: () => void;
 };
@@ -30,17 +30,17 @@ function Suggestions({ names, onChoose }: { names: string[]; onChoose: (name: st
 function Body({ recognition, onOpen, onChoose, onDismiss }: Props) {
   switch (recognition.phase) {
     case "reading":
-      return <p>Reading card name…</p>;
+      return <p>Matching photo…</p>;
     case "resolving":
       return <p>Looking up “{recognition.query}”…</p>;
     case "confirm":
       return (
         <>
           <p>
-            Read “{recognition.read}”. Is this <strong>{recognition.card.name}</strong>?
+            Is this <strong>{recognition.card.name}</strong>?
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => onOpen(recognition.card)}>Open {recognition.card.name}</Button>
+            <Button onClick={() => onOpen(recognition.card, recognition.printId)}>Open {recognition.card.name}</Button>
             <Button onClick={onDismiss} className={quiet}>Scan again</Button>
           </div>
           <Suggestions names={recognition.suggestions} onChoose={onChoose} />
@@ -50,8 +50,9 @@ function Body({ recognition, onOpen, onChoose, onDismiss }: Props) {
       return (
         <>
           <p>
-            {recognition.read ? <>No card matched “{recognition.read}”.</> : "No readable name was found."} Reduce glare,
-            keep the name inside the dashed band, or type the name.
+            {recognition.read
+              ? <>No card matched “{recognition.read}”. Check the spelling or pick a suggestion.</>
+              : "Couldn’t match this card. Fill the frame with it, tilt away from glare, or type the name."}
           </p>
           <Suggestions names={recognition.suggestions} onChoose={onChoose} />
           <Button onClick={onDismiss} className={quiet}>Dismiss</Button>

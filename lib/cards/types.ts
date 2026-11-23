@@ -51,6 +51,8 @@ export type RecognizeResponse =
       status: "matched";
       card: CardIdentity;
       matchedFrom: string;
+      /** True when the match came from a prefix-autocomplete guess rather than a direct lookup. */
+      guess: boolean;
       confidence: number;
       suggestions: string[];
     }

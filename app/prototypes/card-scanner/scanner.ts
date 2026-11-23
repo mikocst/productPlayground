@@ -1,11 +1,12 @@
-// Camera-frame geometry, name-line preprocessing, and OCR candidate extraction.
-// Geometry and text helpers are pure; the canvas/OCR helpers run in the browser only.
+// Camera-frame geometry, frame sampling (motion, sharpness), and multi-placement artwork hashing.
+// Geometry and analysis helpers are pure; sampling/hashing helpers run in the browser only.
 
-import type { Worker } from "tesseract.js";
-import { CARD_RATIO, FRAME_HEIGHT, NAME_BAND, OCR_WHITELIST } from "./data";
-import type { OcrCandidate, Region } from "./types";
+import { artRect, hashRegion, type ArtHash } from "@/lib/cards/art-hash";
+import { CARD_OFFSETS, CARD_RATIO, CARD_SCALES, FRAME_HEIGHT, REFINE_ANGLES, REFINE_OFFSET_STEP, REFINE_SCALE_STEP } from "./data";
 
 export type Rect = { x: number; y: number; width: number; height: number };
+
+// ---------- Geometry ----------
 
 /** Guide frame inside the camera element, in element pixels (matches the CSS overlay). */
 export function guideFrame(elementWidth: number, elementHeight: number): Rect {
@@ -23,12 +24,7 @@ export function coverToSource(rect: Rect, element: { width: number; height: numb
   const scale = Math.max(element.width / source.width, element.height / source.height);
   const offsetX = (element.width - source.width * scale) / 2;
   const offsetY = (element.height - source.height * scale) / 2;
-  return {
-    x: (rect.x - offsetX) / scale,
-    y: (rect.y - offsetY) / scale,
-    width: rect.width / scale,
-    height: rect.height / scale,
-  };
+  return { x: (rect.x - offsetX) / scale, y: (rect.y - offsetY) / scale, width: rect.width / scale, height: rect.height / scale };
 }
 
 /** Largest centered card-ratio rectangle inside an uploaded photo. */
@@ -38,46 +34,42 @@ export function containedCard(source: { width: number; height: number }): Rect {
   return { x: (source.width - width) / 2, y: (source.height - height) / 2, width, height };
 }
 
-export function subRegion(card: Rect, band: Region = NAME_BAND): Rect {
+/** A candidate card position relative to the guide frame: center offset and size as fractions of it, tilt in degrees. */
+export type Placement = { dx: number; dy: number; scale: number; angle: number };
+
+export function placementRect(frame: Rect, p: Placement): Rect {
+  const width = frame.width * p.scale;
+  const height = frame.height * p.scale;
   return {
-    x: card.x + card.width * band.x,
-    y: card.y + card.height * band.y,
-    width: card.width * band.width,
-    height: card.height * band.height,
+    x: frame.x + frame.width / 2 - width / 2 + p.dx * frame.width,
+    y: frame.y + frame.height / 2 - height / 2 + p.dy * frame.height,
+    width,
+    height,
   };
 }
 
-const NOISE_TOKEN = /^[^aeiouy]{1,2}$/i;
-
-/** Cleans one OCR line into a plausible card name, or null. */
-export function cleanLine(line: string): string | null {
-  const tokens = line
-    .replace(/[^A-Za-z ',\-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .split(" ")
-    .filter(Boolean);
-  // Mana symbols and frame edges read as short consonant clusters at either end.
-  while (tokens.length > 1 && NOISE_TOKEN.test(tokens[tokens.length - 1])) tokens.pop();
-  while (tokens.length > 1 && NOISE_TOKEN.test(tokens[0])) tokens.shift();
-  const text = tokens.join(" ").replace(/^[',\-]+|[',\-]+$/g, "");
-  return text.length >= 3 && /[aeiouy]/i.test(text) ? text : null;
+/** Coarse grid: every size in CARD_SCALES at every offset in CARD_OFFSETS, untilted. */
+export function coarsePlacements(): Placement[] {
+  const out: Placement[] = [];
+  for (const scale of CARD_SCALES) for (const dy of CARD_OFFSETS) for (const dx of CARD_OFFSETS) out.push({ dx, dy, scale, angle: 0 });
+  return out;
 }
 
-/** Up to three distinct name candidates, most confident first. */
-export function extractCandidates(results: OcrCandidate[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const result of [...results].sort((a, b) => b.confidence - a.confidence)) {
-    for (const line of result.text.split("\n")) {
-      const clean = cleanLine(line);
-      if (!clean || seen.has(clean.toLowerCase())) continue;
-      seen.add(clean.toLowerCase());
-      out.push(clean);
+/** Finer grid around the best coarse placement, plus slight tilts of it. */
+export function refinePlacements(p: Placement): Placement[] {
+  const out: Placement[] = [];
+  for (const ds of [-REFINE_SCALE_STEP, 0, REFINE_SCALE_STEP]) {
+    for (const oy of [-REFINE_OFFSET_STEP, 0, REFINE_OFFSET_STEP]) {
+      for (const ox of [-REFINE_OFFSET_STEP, 0, REFINE_OFFSET_STEP]) {
+        if (ds || oy || ox) out.push({ dx: p.dx + ox, dy: p.dy + oy, scale: p.scale * (1 + ds), angle: p.angle });
+      }
     }
   }
-  return out.slice(0, 3);
+  for (const angle of REFINE_ANGLES) out.push({ ...p, angle: p.angle + angle });
+  return out;
 }
+
+// ---------- Frame analysis (pure) ----------
 
 /** Mean absolute difference between two equally sized grayscale samples (0–255). */
 export function meanAbsDiff(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
@@ -87,20 +79,31 @@ export function meanAbsDiff(a: Uint8ClampedArray, b: Uint8ClampedArray): number 
   return total / a.length;
 }
 
-/** Fraction of horizontally adjacent pixel pairs with a strong step — high where text is printed. */
-export function edgeDensity(gray: Uint8ClampedArray, width: number, height: number, step = 28): number {
-  if (width < 2 || height < 1) return 0;
-  let edges = 0;
-  for (let y = 0; y < height; y++) {
-    const row = y * width;
-    for (let x = 1; x < width; x++) if (Math.abs(gray[row + x] - gray[row + x - 1]) > step) edges++;
+/**
+ * Contrast-normalized gradient energy (higher is sharper, roughly independent of lighting) and the
+ * standard deviation (texture). Flat scenes such as an empty table have low texture.
+ */
+export function frameQuality(gray: Uint8ClampedArray, width: number, height: number): { sharpness: number; texture: number } {
+  if (width < 2 || height < 2) return { sharpness: 0, texture: 0 };
+  let gradient = 0;
+  let sum = 0;
+  let sumSq = 0;
+  for (let y = 0; y < height - 1; y++) {
+    for (let x = 0; x < width - 1; x++) {
+      const v = gray[y * width + x];
+      gradient += Math.abs(gray[y * width + x + 1] - v) + Math.abs(gray[(y + 1) * width + x] - v);
+      sum += v;
+      sumSq += v * v;
+    }
   }
-  return edges / ((width - 1) * height);
+  const n = (width - 1) * (height - 1);
+  const std = Math.sqrt(Math.max(0, sumSq / n - (sum / n) ** 2));
+  return { sharpness: gradient / n / (std + 8), texture: std };
 }
 
 // ---------- Browser-only helpers ----------
 
-/** Draws `rect` of `source` into a small canvas and returns its grayscale pixels. */
+/** Draws `rect` of `source` at width×height and returns grayscale pixels. */
 export function sampleGray(context: CanvasRenderingContext2D, source: CanvasImageSource, rect: Rect, width: number, height: number): Uint8ClampedArray {
   const canvas = context.canvas;
   if (canvas.width !== width || canvas.height !== height) {
@@ -110,124 +113,11 @@ export function sampleGray(context: CanvasRenderingContext2D, source: CanvasImag
   context.drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, width, height);
   const data = context.getImageData(0, 0, width, height).data;
   const gray = new Uint8ClampedArray(width * height);
-  for (let i = 0; i < gray.length; i++) {
-    const p = i * 4;
-    gray[i] = data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114;
-  }
+  for (let i = 0; i < gray.length; i++) gray[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
   return gray;
 }
 
-/**
- * Finds the printed name inside a generous band: the run of rows with the most horizontal-edge mass.
- * Returns padded row bounds, or the whole band when nothing stands out.
- */
-export function locateTextLine(gray: Uint8ClampedArray, width: number, height: number): { start: number; end: number } {
-  const whole = { start: 0, end: height };
-  if (width < 2 || height < 4) return whole;
-  const raw = new Array<number>(height).fill(0);
-  for (let y = 0; y < height; y++) {
-    let edges = 0;
-    const row = y * width;
-    for (let x = 1; x < width; x++) if (Math.abs(gray[row + x] - gray[row + x - 1]) > 28) edges++;
-    raw[y] = edges / (width - 1);
-  }
-  const profile = raw.map((_, y) => (raw[Math.max(0, y - 1)] + raw[y] + raw[Math.min(height - 1, y + 1)]) / 3);
-  const peak = Math.max(...profile);
-  if (peak < 0.03) return whole;
-
-  const threshold = peak * 0.35;
-  let best = { start: 0, end: 0, mass: 0 };
-  let start = -1;
-  let mass = 0;
-  for (let y = 0; y <= height; y++) {
-    if (y < height && profile[y] >= threshold) {
-      if (start < 0) start = y;
-      mass += profile[y];
-    } else if (start >= 0) {
-      if (mass > best.mass) best = { start, end: y, mass };
-      start = -1;
-      mass = 0;
-    }
-  }
-  const pad = Math.max(4, Math.round((best.end - best.start) * 0.3));
-  return { start: Math.max(0, best.start - pad), end: Math.min(height, best.end + pad) };
-}
-
-const BAND_DRAW_HEIGHT = 160;
-
-/**
- * Crops the name band, isolates the text line inside it, and returns grayscale, contrast-stretched
- * normal and inverted canvases (inverted helps light-on-dark title bars).
- */
-export function prepareNameBand(source: CanvasImageSource, band: Rect): HTMLCanvasElement[] {
-  const scale = BAND_DRAW_HEIGHT / Math.max(1, band.height);
-  const width = Math.max(1, Math.round(band.width * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = BAND_DRAW_HEIGHT;
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) return [];
-  context.imageSmoothingQuality = "high";
-  context.drawImage(source, band.x, band.y, band.width, band.height, 0, 0, width, BAND_DRAW_HEIGHT);
-
-  const image = context.getImageData(0, 0, width, BAND_DRAW_HEIGHT);
-  const full = new Uint8ClampedArray(width * BAND_DRAW_HEIGHT);
-  for (let i = 0; i < full.length; i++) {
-    const p = i * 4;
-    full[i] = image.data[p] * 0.299 + image.data[p + 1] * 0.587 + image.data[p + 2] * 0.114;
-  }
-  const line = locateTextLine(full, width, BAND_DRAW_HEIGHT);
-  const height = Math.max(1, line.end - line.start);
-  const gray = full.subarray(line.start * width, line.end * width);
-  const histogram = new Array<number>(256).fill(0);
-  for (let i = 0; i < gray.length; i++) histogram[gray[i]]++;
-  const percentile = (fraction: number) => {
-    let count = 0;
-    for (let v = 0; v < 256; v++) {
-      count += histogram[v];
-      if (count >= gray.length * fraction) return v;
-    }
-    return 255;
-  };
-  const low = percentile(0.05);
-  const high = Math.max(low + 1, percentile(0.95));
-
-  const variants = [false, true].map((invert) => {
-    const out = context.createImageData(width, height);
-    for (let i = 0; i < gray.length; i++) {
-      let value = ((gray[i] - low) / (high - low)) * 255;
-      if (invert) value = 255 - value;
-      const p = i * 4;
-      out.data[p] = out.data[p + 1] = out.data[p + 2] = value;
-      out.data[p + 3] = 255;
-    }
-    const variant = document.createElement("canvas");
-    variant.width = width;
-    variant.height = height;
-    variant.getContext("2d")?.putImageData(out, 0, 0);
-    return variant;
-  });
-  return variants;
-}
-
-/** Lazily loads Tesseract.js (worker, core, and English data are fetched once and cached by the browser). */
-export async function createOcrWorker(): Promise<Worker> {
-  const Tesseract = await import("tesseract.js");
-  const worker = await Tesseract.createWorker("eng", Tesseract.OEM.LSTM_ONLY);
-  await worker.setParameters({
-    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
-    tessedit_char_whitelist: OCR_WHITELIST,
-    preserve_interword_spaces: "1",
-  });
-  return worker;
-}
-
-export async function readNameBand(worker: Worker, canvases: HTMLCanvasElement[]): Promise<{ candidates: string[]; raw: string }> {
-  const results: OcrCandidate[] = [];
-  for (const canvas of canvases) {
-    const { data } = await worker.recognize(canvas);
-    results.push({ text: data.text, confidence: data.confidence });
-  }
-  const best = [...results].sort((a, b) => b.confidence - a.confidence)[0];
-  return { candidates: extractCandidates(results), raw: best?.text.trim() ?? "" };
+/** Art-window fingerprints of `placements` around the guide `frame`. */
+export function hashPlacements(context: CanvasRenderingContext2D, source: CanvasImageSource, frame: Rect, placements: Placement[]): ArtHash[] {
+  return placements.map((p) => hashRegion(context, source, artRect(placementRect(frame, p)), (p.angle * Math.PI) / 180));
 }

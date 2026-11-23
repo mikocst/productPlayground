@@ -6,12 +6,12 @@ import { CameraScanner } from "./CameraScanner";
 import { CardViewport } from "./CardViewport";
 import { ComboList } from "./ComboList";
 import { fetchCombos } from "./combos";
-import { COMBO_PAGE, COMBO_PREVIEW, EMPTY_COMBOS, OCR_CONFIDENT, SURPRISE_CARDS } from "./data";
+import { COMBO_PAGE, COMBO_PREVIEW, EMPTY_COMBOS, SURPRISE_CARDS } from "./data";
 import { ManualSearch } from "./ManualSearch";
 import { PrintingCarousel } from "./PrintingCarousel";
 import { RecognitionStatus } from "./RecognitionStatus";
 import { errorMessage, fetchCard, recognizeName } from "./scryfall";
-import type { CardIdentity, CardState, ComboState, NameSource, Recognition, ScanOutcome } from "./types";
+import type { ArtCandidate, CardIdentity, CardState, ComboState, Recognition } from "./types";
 
 const quiet = "border border-border bg-card text-foreground hover:bg-muted";
 const link = "text-primary-bright underline-offset-4 hover:underline";
@@ -89,42 +89,32 @@ export function CardScanner() {
     }
   }, [loadCombos]);
 
-  /**
-   * Resolves name candidates. `quiet` lookups come from auto-scan: they show no progress and a miss
-   * leaves the UI untouched so the camera loop can simply try again.
-   */
-  const resolveName = useCallback(async (candidates: string[], source: NameSource, read = candidates[0] ?? "", quiet = false): Promise<ScanOutcome> => {
+  /** Resolves a typed (or chosen) card name and opens the best match. */
+  const resolveName = useCallback(async (name: string) => {
     lookupRef.current?.abort();
-    if (!candidates.length) {
-      if (!quiet) setRecognition({ phase: "no-match", read, suggestions: [] });
-      return "miss";
-    }
     const controller = new AbortController();
     lookupRef.current = controller;
-    if (!quiet) setRecognition({ phase: "resolving", query: candidates[0] });
+    setRecognition({ phase: "resolving", query: name });
     try {
-      const result = await recognizeName(candidates, controller.signal);
-      if (result.status === "no-match") {
-        if (!quiet) setRecognition({ phase: "no-match", read, suggestions: result.suggestions });
-        return "miss";
-      }
-      if (source === "typed" || result.confidence >= OCR_CONFIDENT) {
-        openCard(result.card.oracleId, null, result.card.name);
-        return "opened";
-      }
-      setRecognition({ phase: "confirm", card: result.card, read: result.matchedFrom, confidence: result.confidence, suggestions: result.suggestions });
-      return "confirm";
+      const result = await recognizeName([name], controller.signal);
+      if (result.status === "no-match") setRecognition({ phase: "no-match", read: name, suggestions: result.suggestions });
+      else openCard(result.card.oracleId, null, result.card.name);
     } catch (error) {
-      if (controller.signal.aborted) return "aborted";
+      if (controller.signal.aborted) return;
       setRecognition({ phase: "error", message: errorMessage(error) });
-      return "error";
     }
   }, [openCard]);
 
-  const readScan = useCallback(
-    (candidates: string[], raw: string, quiet: boolean) => resolveName(candidates, "ocr", raw, quiet),
-    [resolveName],
-  );
+  // Auto-scan callbacks (the camera loop decides; these only present the decision).
+  const scanOpen = useCallback((match: ArtCandidate) => openCard(match.oracleId, match.printingId, match.name), [openCard]);
+  const scanConfirm = useCallback((match: ArtCandidate, others: string[]) => setRecognition({
+    phase: "confirm",
+    card: { oracleId: match.oracleId, name: match.name, layout: "", typeLine: "" },
+    printId: match.printingId,
+    read: "",
+    suggestions: others,
+  }), []);
+  const scanMiss = useCallback((others: string[]) => setRecognition({ phase: "no-match", read: "", suggestions: others }), []);
   const scanFailed = useCallback((message: string) => setRecognition({ phase: "error", message }), []);
   const scanReading = useCallback(() => setRecognition({ phase: "reading" }), []);
 
@@ -174,7 +164,7 @@ export function CardScanner() {
   function surprise() {
     const current = card.status === "ready" ? card.data.card.name : "";
     const pool = SURPRISE_CARDS.filter((name) => name !== current);
-    resolveName([pool[Math.floor(Math.random() * pool.length)]], "typed");
+    resolveName(pool[Math.floor(Math.random() * pool.length)]);
   }
 
   const busy = recognition.phase === "reading" || recognition.phase === "resolving";
@@ -196,16 +186,18 @@ export function CardScanner() {
           <CameraScanner
             paused={recognition.phase !== "idle"}
             onReading={scanReading}
-            onRead={readScan}
+            onOpen={scanOpen}
+            onConfirm={scanConfirm}
+            onMiss={scanMiss}
             onFailure={scanFailed}
           />
           <RecognitionStatus
             recognition={recognition}
-            onOpen={(identity: CardIdentity) => openCard(identity.oracleId, null, identity.name)}
-            onChoose={(name) => resolveName([name], "typed")}
+            onOpen={(identity: CardIdentity, printId: string | null) => openCard(identity.oracleId, printId, identity.name)}
+            onChoose={resolveName}
             onDismiss={() => setRecognition({ phase: "idle" })}
           />
-          <ManualSearch disabled={busy} onSearch={(name) => resolveName([name], "typed")} />
+          <ManualSearch disabled={busy} onSearch={resolveName} />
         </div>
       )}
 

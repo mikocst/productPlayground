@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { errorStatus, UpstreamError } from "@/lib/cards/http";
-import { nameSimilarity } from "@/lib/cards/match";
+import { readSimilarity } from "@/lib/cards/match";
 import { autocomplete, findCardByName } from "@/lib/cards/scryfall";
 import type { CardIdentity, RecognizeResponse } from "@/lib/cards/types";
 
@@ -8,7 +8,10 @@ const MAX_CANDIDATES = 3;
 const MAX_LENGTH = 80;
 const CONFIDENT = 0.8;
 
-function parseCandidates(body: unknown): string[] | null {
+/** Prefix guesses below this similarity are not offered as a match. */
+const PREFIX_FLOOR = 0.5;
+
+function parseBody(body: unknown): string[] | null {
   if (!body || typeof body !== "object") return null;
   const list = (body as { candidates?: unknown }).candidates;
   if (!Array.isArray(list)) return null;
@@ -19,7 +22,7 @@ function parseCandidates(body: unknown): string[] | null {
   return clean.length ? [...new Set(clean)].slice(0, MAX_CANDIDATES) : null;
 }
 
-/** OCR typos defeat fuzzy lookup ("Sol Rlng"), so autocomplete shrinking prefixes and rank by similarity. */
+/** Typos can defeat fuzzy lookup ("Sol Rlng"), so autocomplete shrinking prefixes and rank by similarity. */
 async function nearestByPrefix(candidate: string): Promise<{ names: string[]; best: { name: string; score: number } | null }> {
   const words = candidate.split(" ");
   const prefixes = [...new Set([
@@ -31,32 +34,29 @@ async function nearestByPrefix(candidate: string): Promise<{ names: string[]; be
   for (const prefix of prefixes) {
     const names = await autocomplete(prefix).catch(() => []);
     if (!names.length) continue;
-    const ranked = names
-      // Trailing OCR noise is common, so also compare against a same-length slice of the read text.
-      .map((name) => ({ name, score: Math.max(nameSimilarity(candidate, name), nameSimilarity(candidate.slice(0, name.length), name)) }))
-      .sort((a, b) => b.score - a.score);
-    return { names: ranked.map((r) => r.name), best: ranked[0].score >= 0.5 ? ranked[0] : null };
+    const ranked = names.map((name) => ({ name, score: readSimilarity(candidate, name) })).sort((a, b) => b.score - a.score);
+    return { names: ranked.map((r) => r.name), best: ranked[0].score >= PREFIX_FLOOR ? ranked[0] : null };
   }
   return { names: [], best: null };
 }
 
-/** Resolves OCR or typed name candidates to a single Scryfall oracle identity. */
+/** Resolves typed name candidates to a single Scryfall oracle identity. */
 export async function POST(request: Request) {
   let candidates: string[] | null;
   try {
-    candidates = parseCandidates(await request.json());
+    candidates = parseBody(await request.json());
   } catch {
     candidates = null;
   }
   if (!candidates) return NextResponse.json({ error: "Send at least one card name candidate." }, { status: 400 });
 
   try {
-    let best: { card: CardIdentity; from: string; score: number } | null = null;
+    let best: { card: CardIdentity; from: string; score: number; guess: boolean } | null = null;
     for (const candidate of candidates) {
       try {
         const card = await findCardByName(candidate);
-        const score = nameSimilarity(candidate, card.name);
-        if (!best || score > best.score) best = { card, from: candidate, score };
+        const score = readSimilarity(candidate, card.name);
+        if (!best || score > best.score) best = { card, from: candidate, score, guess: false };
         if (score >= 0.98) break;
       } catch (error) {
         if (!(error instanceof UpstreamError && error.status === 404)) throw error;
@@ -71,14 +71,13 @@ export async function POST(request: Request) {
       nearby = direct.length ? direct : fallback?.names ?? [];
       if (!best && fallback?.best) {
         const card = await findCardByName(fallback.best.name);
-        // A prefix guess is never confident enough to open without the user confirming it.
-        best = { card, from, score: Math.min(fallback.best.score, CONFIDENT - 0.01) };
+        best = { card, from, score: fallback.best.score, guess: true };
       }
     }
     const suggestions = nearby.filter((name) => name !== best?.card.name).slice(0, 5);
 
     const body: RecognizeResponse = best
-      ? { status: "matched", card: best.card, matchedFrom: best.from, confidence: Number(best.score.toFixed(2)), suggestions }
+      ? { status: "matched", card: best.card, matchedFrom: best.from, confidence: Number(best.score.toFixed(2)), guess: best.guess, suggestions }
       : { status: "no-match", suggestions };
     return NextResponse.json(body);
   } catch (error) {
