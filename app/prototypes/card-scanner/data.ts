@@ -20,6 +20,82 @@ export const GYRO_TILT = 14;
 
 export const TILT_SPRING = { stiffness: 300, damping: 30 };
 
+// ---------- Scanner v2: outline detection + whole-card hash, in a worker ----------
+
+/** Names the current whole-card index file (scripts/build-card-index.ts); the .bin itself is cacheable forever. */
+export const CARD_INDEX_MANIFEST_URL = "/data/card-index.manifest.json";
+
+/** Frames are offered this often; while the worker is busy the tick is a no-op (no backlog). */
+export const FRAME_INTERVAL_MS = 40;
+/** Area around the guide (fraction of its size, per side) sent to the worker, so a loose card is still whole. */
+export const CROP_MARGIN = 0.12;
+/** The crop is downscaled to at most this many pixels tall before it is sent. */
+export const MAX_FRAME_HEIGHT = 720;
+/** The worker (and its parsed index) outlives the scan view this long, so "Scan" again starts instantly. */
+export const WORKER_KEEP_ALIVE_MS = 180_000;
+
+/** Outline detection (outline.ts) runs on a copy with this longest side. */
+export const DETECT_SIZE = 320;
+/** Hough votes come from pixels above this gradient-magnitude percentile (with a floor); edge support uses a looser one. */
+export const VOTE_PERCENTILE = 0.85;
+export const VOTE_FLOOR = 40;
+export const SUPPORT_PERCENTILE = 0.8;
+export const SUPPORT_FLOOR = 28;
+/** Lines are only searched within this many degrees of vertical/horizontal… */
+export const LINE_BAND = 25;
+/** …and within this many degrees of each pixel's own gradient direction. */
+export const GRADIENT_WINDOW = 12;
+/** Hough peaks kept, strongest lines used directly, and extreme (outermost) lines added per side. */
+export const MAX_LINES = 40;
+export const STRONG_LINES = 10;
+export const EXTREME_LINES = 2;
+/**
+ * Quad filters: corners may sit this far outside the frame; card aspect (0.716) range; minimum frame coverage;
+ * max opposite-side difference (0.2 rejected every card tilted 30° toward the camera; 0.3 outlines 43/48 of them);
+ * min gradient support on every side.
+ */
+export const CORNER_SLACK = 0.08;
+export const MIN_ASPECT = 0.6;
+export const MAX_ASPECT = 0.84;
+export const MIN_AREA = 0.12;
+export const MAX_SIDE_DIFF = 0.3;
+export const MIN_SIDE_SUPPORT = 0.35;
+/** Outlines hashed per frame: best by score plus best by shape alone. */
+export const OUTLINES_BY_SCORE = 3;
+export const OUTLINES_BY_SHAPE = 2;
+/** When no outline is confident, each edge is moved by these fractions of the card height (two passes), re-hashing against the nearest entries only. Positive is outward. */
+export const REFINE_EDGE_STEPS = [-0.03, 0.02, 0.05];
+export const REFINE_PASSES = 2;
+export const REFINE_NEAREST = 20;
+/** Without any outline, the guide box itself is tried if it has at least this much contrast (luma std dev). */
+export const GUIDE_FALLBACK_TEXTURE = 14;
+
+/**
+ * Hamming distances out of 256 bits. A frame is *confident* when its best card is this close and this far ahead
+ * of any other card. Measured (scripts/eval-scanner.ts, 3,840 synthetic card frames across 10 conditions plus 528
+ * token/empty frames): the right card scores median 26, p90 48, p99 56; the closest wrong or negative frame
+ * scored 62. At 56/10, 98% of card frames are confident and none are wrong; at 64, 3 wrong frames get through.
+ */
+export const CONFIDENT_DISTANCE = 56;
+export const CONFIDENT_MARGIN = 10;
+/** One frame opens a card when it is this close and this far ahead (26 bits below the closest wrong frame). */
+export const INSTANT_DISTANCE = 36;
+export const INSTANT_MARGIN = 24;
+/** Otherwise this many consecutive confident frames on the same card open it. */
+export const STREAK_TO_OPEN = 3;
+/** A card that was just offered isn't offered again until it has been out of view this many frames in a row. */
+export const REARM_MISSES = 4;
+/** An outline without a confident match for this long suggests glare. */
+export const GLARE_HINT_MS = 2000;
+/** After this many outlined frames without a decision, the closest card within GUESS_DISTANCE is offered as "Is this…?". */
+export const MAX_OUTLINED_FRAMES = 45;
+/** The right card scores ≤ 56 in 99% of frames; at 68, tokens (not in the index) were offered as a guess in 8 of 80 runs. */
+export const GUESS_DISTANCE = 60;
+/** Entries of the accepted card within this many bits of its best are plausible printings. */
+export const PRINTING_SPREAD = 36;
+
+// ---------- Scanner v1 (art-window search, ?scanner=v1) ----------
+
 /** Perceptual-hash index of every unique paper artwork on Scryfall (scripts/build-card-art-index.ts). */
 export const ART_INDEX_URL = "/data/mtg-art-index.json";
 

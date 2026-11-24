@@ -1,4 +1,4 @@
-// Pure decision logic for auto-scan: turns per-frame artwork matches into open / confirm / surface decisions.
+// Scanner v1 (?scanner=v1) decision logic: turns per-frame artwork matches into open / confirm / surface decisions.
 // One frame opens a card only when its match is close and far ahead of any other card; otherwise the same
 // card must win several recent frames. Weaker matches are only ever offered as a question.
 

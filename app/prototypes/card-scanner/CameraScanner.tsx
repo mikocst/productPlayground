@@ -1,24 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { artRect } from "@/lib/cards/art-hash";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { loadArtIndex, mergeCandidates, searchArt, type ArtIndex } from "./artIndex";
-import { decidePhoto, EMPTY_VOTES, recordFrame, type Decision, type VoteState } from "./autoScan";
-import { AUTO_TICK_MS, CARD_RATIO, FRAME_HEIGHT, MIN_TEXTURE, MOVING_DIFF, SCENE_CHANGE_DIFF, SHARPNESS_RATIO } from "./data";
-import {
-  coarsePlacements,
-  containedCard,
-  coverToSource,
-  frameQuality,
-  guideFrame,
-  hashPlacements,
-  meanAbsDiff,
-  refinePlacements,
-  sampleGray,
-  type Rect,
-} from "./scanner";
+import { decidePhoto, EMPTY_SCAN, recordFrame, type Decision, type ScanState } from "./autoScan";
+import type { Decision as V1Decision } from "./autoScanV1";
+import { CARD_RATIO, FRAME_HEIGHT, FRAME_INTERVAL_MS, MAX_FRAME_HEIGHT } from "./data";
+import { coverToSource, cropAround, guideFrame, sourceToCover } from "./geometry";
+import { ScanDebug, type DebugStats } from "./ScanDebug";
+import { ScanSession, type Engine, type IndexInfo } from "./scanEngine";
 import type { ArtCandidate, CameraStatus, ScanHint } from "./types";
 
 type Props = {
@@ -31,14 +21,6 @@ type Props = {
   onFailure: (message: string) => void;
 };
 
-type Loop = {
-  previous: Uint8ClampedArray | null;
-  motion: number;
-  maxSharpness: number;
-  votes: VoteState;
-  surfacedScene: Uint8ClampedArray | null;
-};
-
 const CAMERA_MESSAGES: Partial<Record<CameraStatus, string>> = {
   denied: "Camera access was blocked. Allow it in your browser's site settings, upload a photo, or type the name.",
   unsupported: "The camera needs a secure (HTTPS) page and a browser that supports it. Upload a photo or type the name instead.",
@@ -47,28 +29,23 @@ const CAMERA_MESSAGES: Partial<Record<CameraStatus, string>> = {
 
 const HINTS: Record<ScanHint, string> = {
   loading: "Loading card index…",
-  searching: "Fill the frame with the card",
+  searching: "Hold a card inside the frame",
   moving: "Hold the card still",
   matching: "Matching…",
+  glare: "Tilt the card to cut the glare",
   surfaced: "Show a different card to scan again",
 };
 
-const FRAME_SAMPLE = { width: 36, height: 50 };
-const SHARP_SAMPLE = { width: 96, height: 64 };
-const COARSE = coarsePlacements();
-
-/** Coarse grid search, then a finer search (with slight tilts) around the best placement. */
-function matchFrame(index: ArtIndex, context: CanvasRenderingContext2D, source: CanvasImageSource, card: Rect): ArtCandidate[] {
-  const coarse = searchArt(index, hashPlacements(context, source, card, COARSE));
-  const refinedAround = COARSE[coarse.bestQuery];
-  const fine = searchArt(index, hashPlacements(context, source, card, refinePlacements(refinedAround)));
-  return mergeCandidates(coarse.candidates, fine.candidates);
-}
+/** Longest side an uploaded photo is reduced to before matching. */
+const PHOTO_SIZE = 1280;
+/** A card just opened stays blocked this long across remounts, so "Scan" doesn't reopen it at once. */
+const CARRY_BLOCK_MS = 60_000;
+let carried: { nameIndex: number; at: number } | null = null;
 
 export function CameraScanner({ paused, onReading, onOpen, onConfirm, onMiss, onFailure }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const indexRef = useRef<ArtIndex | null>(null);
+  const sessionRef = useRef<ScanSession | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
   const propsRef = useRef({ paused, onOpen, onConfirm, onMiss, onFailure });
@@ -76,10 +53,20 @@ export function CameraScanner({ paused, onReading, onOpen, onConfirm, onMiss, on
   const [status, setStatus] = useState<CameraStatus>("idle");
   const [hint, setHintState] = useState<ScanHint>("loading");
   const [indexState, setIndexState] = useState<"loading" | "ready" | "error">("loading");
+  // URL flags are read after mount so the server and first client render match.
+  const [flags, setFlags] = useState<{ engine: Engine; debug: boolean } | null>(null);
+  const [info, setInfo] = useState<IndexInfo | null>(null);
+  const [stats, setStats] = useState<DebugStats | null>(null);
 
   useEffect(() => {
     propsRef.current = { paused, onOpen, onConfirm, onMiss, onFailure };
   }, [paused, onOpen, onConfirm, onMiss, onFailure]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const timer = window.setTimeout(() => setFlags({ engine: params.get("scanner") === "v1" ? "v1" : "v2", debug: params.get("debug") === "1" }), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const setHint = useCallback((next: ScanHint) => {
     if (hintRef.current === next) return;
@@ -87,7 +74,7 @@ export function CameraScanner({ paused, onReading, onOpen, onConfirm, onMiss, on
     setHintState(next);
   }, []);
 
-  const present = useCallback((decision: Decision) => {
+  const present = useCallback((decision: Decision | V1Decision) => {
     const { onOpen: open, onConfirm: confirm, onMiss: miss } = propsRef.current;
     if (decision.kind === "open") open(decision.match);
     else if (decision.kind === "confirm") confirm(decision.match, decision.others);
@@ -134,18 +121,26 @@ export function CameraScanner({ paused, onReading, onOpen, onConfirm, onMiss, on
     };
   }, []);
 
-  // Load the artwork index (cached by the browser after the first visit).
+  // One worker session per mount; the worker loads (or already holds) the index.
   useEffect(() => {
+    if (!flags) return;
+    const session = new ScanSession(flags.engine);
+    sessionRef.current = session;
     let active = true;
-    loadArtIndex()
-      .then((index) => {
+    session
+      .ready()
+      .then((loaded) => {
         if (!active) return;
-        indexRef.current = index;
+        setInfo(loaded);
         setIndexState("ready");
       })
       .catch(() => { if (active) setIndexState("error"); });
-    return () => { active = false; };
-  }, []);
+    return () => {
+      active = false;
+      session.close();
+      if (sessionRef.current === session) sessionRef.current = null;
+    };
+  }, [flags]);
 
   // Skip the Start tap when camera permission was already granted on a previous visit.
   useEffect(() => {
@@ -157,82 +152,110 @@ export function CameraScanner({ paused, onReading, onOpen, onConfirm, onMiss, on
     return () => { active = false; };
   }, [startCamera]);
 
-  // Auto-scan loop: every sharp, non-moving frame is hashed at several card placements and matched
-  // against the artwork index; votes across frames decide (autoScan.ts).
+  // Frame loop: every FRAME_INTERVAL_MS, if the worker is idle, crop the guide area (plus a margin), post it,
+  // and feed the result to the decision rules. A busy worker makes the tick a no-op.
   useEffect(() => {
-    if (status !== "live" || indexState !== "ready") return;
-    const sampleContext = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
-    const hashContext = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
-    if (!sampleContext || !hashContext) return;
+    const session = sessionRef.current;
+    if (status !== "live" || indexState !== "ready" || !session || !flags) return;
+    const context = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    if (!context) return;
     let cancelled = false;
-    let timer = 0;
-    const loop: Loop = { previous: null, motion: 0, maxSharpness: 0, votes: EMPTY_VOTES, surfacedScene: null };
+    const recent = carried && Date.now() - carried.at < CARRY_BLOCK_MS ? carried : null;
+    let state: ScanState = recent ? { ...EMPTY_SCAN, blocked: { nameIndex: recent.nameIndex, misses: 0 } } : EMPTY_SCAN;
+    const replies: number[] = [];
     setHint("searching");
 
-    const step = (video: HTMLVideoElement, index: ArtIndex) => {
-      const element = { width: video.clientWidth, height: video.clientHeight };
-      if (!element.width || !element.height) return;
-      const frame = coverToSource(guideFrame(element.width, element.height), element, { width: video.videoWidth, height: video.videoHeight });
-      const frameGray = sampleGray(sampleContext, video, frame, FRAME_SAMPLE.width, FRAME_SAMPLE.height);
-
-      const diff = loop.previous ? meanAbsDiff(loop.previous, frameGray) : 0;
-      loop.previous = frameGray;
-      loop.motion = loop.motion * 0.5 + diff * 0.5;
-
-      // After a guess was offered, wait for a different scene rather than re-matching the same card.
-      if (loop.surfacedScene) {
-        if (meanAbsDiff(loop.surfacedScene, frameGray) <= SCENE_CHANGE_DIFF) return setHint("surfaced");
-        loop.surfacedScene = null;
-        loop.votes = EMPTY_VOTES;
-        loop.maxSharpness = 0;
-      }
-      if (loop.motion > MOVING_DIFF) return setHint("moving");
-
-      const quality = frameQuality(sampleGray(sampleContext, video, artRect(frame), SHARP_SAMPLE.width, SHARP_SAMPLE.height), SHARP_SAMPLE.width, SHARP_SAMPLE.height);
-      // Flat scenes (an empty table) hash to near-random bits that can resemble flat artwork.
-      if (quality.texture < MIN_TEXTURE) return setHint("searching");
-      loop.maxSharpness = Math.max(quality.sharpness, loop.maxSharpness * 0.97);
-      if (quality.sharpness < loop.maxSharpness * SHARPNESS_RATIO) return;
-
-      const candidates = matchFrame(index, hashContext, video, frame);
-      const { state, decision } = recordFrame(loop.votes, candidates);
-      loop.votes = state;
-      if (decision.kind === "wait") return setHint(decision.leading ? "matching" : "searching");
-      loop.surfacedScene = frameGray;
-      loop.votes = EMPTY_VOTES;
-      setHint("surfaced");
-      present(decision);
-    };
-
-    const tick = () => {
+    const tick = async () => {
       const video = videoRef.current;
-      const index = indexRef.current;
-      if (video && index && video.videoWidth && !document.hidden && !propsRef.current.paused) {
-        try {
-          step(video, index);
-        } catch {
-          // A transient canvas failure skips this frame.
+      if (!video || !video.videoWidth || session.busy || document.hidden || propsRef.current.paused) return;
+      const element = { width: video.clientWidth, height: video.clientHeight };
+      const source = { width: video.videoWidth, height: video.videoHeight };
+      if (!element.width || !element.height) return;
+      const guide = coverToSource(guideFrame(element.width, element.height), element, source);
+      const crop = cropAround(guide, source);
+      const scale = Math.min(1, MAX_FRAME_HEIGHT / crop.height);
+      const width = Math.round(crop.width * scale);
+      const height = Math.round(crop.height * scale);
+      let frame: ImageData;
+      try {
+        if (context.canvas.width !== width || context.canvas.height !== height) {
+          context.canvas.width = width;
+          context.canvas.height = height;
         }
+        context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, width, height);
+        frame = context.getImageData(0, 0, width, height);
+      } catch {
+        return; // a transient canvas failure skips this frame
       }
-      if (!cancelled) timer = window.setTimeout(tick, AUTO_TICK_MS);
+      const guideInFrame = { x: (guide.x - crop.x) * scale, y: (guide.y - crop.y) * scale, width: guide.width * scale, height: guide.height * scale };
+      let reply;
+      try {
+        reply = await session.analyze(frame, guideInFrame);
+      } catch {
+        return;
+      }
+      if (!reply || cancelled || propsRef.current.paused) return;
+
+      const now = performance.now();
+      replies.push(now);
+      while (replies.length && now - replies[0] > 1000) replies.shift();
+
+      if (reply.engine === "v1") {
+        setHint(reply.result.hint);
+        if (flags.debug) setStats({ ms: reply.ms, fps: replies.length, best: reply.result.best?.name ?? null, distance: reply.result.best?.distance ?? null, runnerUp: null, source: "v1", quad: null, certain: null });
+        if (reply.result.decision) present(reply.result.decision);
+        return;
+      }
+
+      const { analysis } = reply;
+      const next = recordFrame(state, analysis, now);
+      state = next.state;
+      carried = state.blocked ? { nameIndex: state.blocked.nameIndex, at: Date.now() } : null;
+      if (flags.debug) {
+        // Quad corners: frame pixels → video pixels → element pixels, for the overlay.
+        const quad = analysis.quad
+          ? Array.from({ length: 4 }, (_, i) => sourceToCover(analysis.quad![i * 2] / scale + crop.x, analysis.quad![i * 2 + 1] / scale + crop.y, element, source))
+          : null;
+        setStats({
+          ms: analysis.ms,
+          fps: replies.length,
+          best: analysis.best?.name ?? null,
+          distance: analysis.best?.distance ?? null,
+          runnerUp: analysis.runnerUp ? `${analysis.runnerUp.name} (${analysis.runnerUp.distance})` : null,
+          source: `${analysis.source}${analysis.confident ? " · confident" : ""} · ${analysis.outlines} outlines`,
+          quad,
+          certain: analysis.best ? `${analysis.best.set.toUpperCase()} #${analysis.best.collector}${analysis.best.printingCertain ? "" : " (guess)"}` : null,
+        });
+      }
+      if (next.decision.kind === "wait") return setHint(next.decision.hint);
+      setHint("surfaced");
+      present(next.decision);
     };
-    timer = window.setTimeout(tick, AUTO_TICK_MS);
+
+    const timer = window.setInterval(tick, FRAME_INTERVAL_MS);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      window.clearInterval(timer);
     };
-  }, [status, indexState, present, setHint]);
+  }, [status, indexState, flags, present, setHint]);
 
   async function upload(file: File | undefined) {
-    if (!file) return;
+    const session = sessionRef.current;
+    if (!file || !session) return;
     onReading();
     try {
-      const [index, bitmap] = await Promise.all([loadArtIndex(), createImageBitmap(file)]);
-      const context = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, PHOTO_SIZE / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      const context = canvas.getContext("2d", { willReadFrequently: true });
       if (!context) throw new Error("canvas");
-      const candidates = matchFrame(index, context, bitmap, containedCard({ width: bitmap.width, height: bitmap.height }));
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
       bitmap.close();
-      present(decidePhoto(candidates));
+      const reply = await session.photo(context.getImageData(0, 0, canvas.width, canvas.height));
+      if (!reply) return;
+      present(reply.engine === "v2" ? decidePhoto(reply.analysis) : reply.decision);
     } catch {
       onFailure("That image couldn't be matched. Try a JPEG or PNG photo of the card front, or type the name.");
     } finally {
@@ -242,7 +265,7 @@ export function CameraScanner({ paused, onReading, onOpen, onConfirm, onMiss, on
 
   const live = status === "live";
   const message = CAMERA_MESSAGES[status];
-  const locked = live && !paused && hint === "matching";
+  const locked = live && !paused && (hint === "matching" || hint === "glare");
   const pill = indexState === "error" ? "The card index couldn't load. Type the card name below." : HINTS[indexState === "loading" ? "loading" : hint];
 
   return (
@@ -257,6 +280,7 @@ export function CameraScanner({ paused, onReading, onOpen, onConfirm, onMiss, on
           )}
           style={{ height: `${FRAME_HEIGHT * 100}%`, aspectRatio: String(CARD_RATIO) }}
         />
+        {flags?.debug && live && <ScanDebug stats={stats} info={info} engine={flags.engine} />}
         {!live && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
             {message ? (

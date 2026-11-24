@@ -25,10 +25,39 @@ export type ComboState = {
   expanded: boolean;
 };
 
-/** Live guidance shown over the camera while auto-scanning. */
-export type ScanHint = "loading" | "searching" | "moving" | "matching" | "surfaced";
+/** Live guidance shown over the camera while auto-scanning. "moving" is v1 only, "glare" v2 only. */
+export type ScanHint = "loading" | "searching" | "moving" | "matching" | "glare" | "surfaced";
 
-/** One artwork from the hash index and its Hamming distance (0–128) to the camera frame. */
+/** Which quad produced a v2 frame match. */
+export type QuadSource = "tracked" | "outline" | "guide" | "image" | "none";
+
+/** The best card in one v2 frame, with its most likely printing. Distances are out of 256 bits. */
+export type FrameMatch = {
+  nameIndex: number;
+  oracleId: string;
+  name: string;
+  distance: number;
+  printingId: string;
+  set: string;
+  collector: string;
+  /** Only one printing of the card looks like this. */
+  printingCertain: boolean;
+};
+
+/** What the v2 worker found in one frame. Quad corners are in the posted frame's pixels. */
+export type FrameAnalysis = {
+  hasOutline: boolean;
+  outlines: number;
+  quad: readonly number[] | null;
+  source: QuadSource;
+  best: FrameMatch | null;
+  /** The closest *different* card. */
+  runnerUp: { name: string; distance: number } | null;
+  confident: boolean;
+  ms: number;
+};
+
+/** A recognized card as handed to the page: the printing to open and its distance (v1: 0–128, v2: 0–256). */
 export type ArtCandidate = { printingId: string; oracleId: string; name: string; distance: number };
 
 export type CameraStatus = "idle" | "starting" | "live" | "denied" | "unsupported" | "error";

@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# card-scanner eval output
+/scripts/fixtures/scanner/last-eval.json

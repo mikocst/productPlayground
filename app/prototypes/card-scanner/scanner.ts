@@ -1,31 +1,12 @@
-// Camera-frame geometry, frame sampling (motion, sharpness), and multi-placement artwork hashing.
-// Geometry and analysis helpers are pure; sampling/hashing helpers run in the browser only.
+// Scanner v1 (art-window search; kept behind ?scanner=v1 for comparison): frame sampling (motion, sharpness), and multi-placement artwork hashing.
+// Analysis helpers are pure; sampling/hashing helpers need a 2D canvas (an OffscreenCanvas in the worker).
 
 import { artRect, hashRegion, type ArtHash } from "@/lib/cards/art-hash";
-import { CARD_OFFSETS, CARD_RATIO, CARD_SCALES, FRAME_HEIGHT, REFINE_ANGLES, REFINE_OFFSET_STEP, REFINE_SCALE_STEP } from "./data";
+import { CARD_OFFSETS, CARD_RATIO, CARD_SCALES, REFINE_ANGLES, REFINE_OFFSET_STEP, REFINE_SCALE_STEP } from "./data";
+import type { Rect } from "./geometry";
 
-export type Rect = { x: number; y: number; width: number; height: number };
-
-// ---------- Geometry ----------
-
-/** Guide frame inside the camera element, in element pixels (matches the CSS overlay). */
-export function guideFrame(elementWidth: number, elementHeight: number): Rect {
-  let height = elementHeight * FRAME_HEIGHT;
-  let width = height * CARD_RATIO;
-  if (width > elementWidth * 0.92) {
-    width = elementWidth * 0.92;
-    height = width / CARD_RATIO;
-  }
-  return { x: (elementWidth - width) / 2, y: (elementHeight - height) / 2, width, height };
-}
-
-/** Maps an element-space rectangle to source pixels for an `object-fit: cover` media element. */
-export function coverToSource(rect: Rect, element: { width: number; height: number }, source: { width: number; height: number }): Rect {
-  const scale = Math.max(element.width / source.width, element.height / source.height);
-  const offsetX = (element.width - source.width * scale) / 2;
-  const offsetY = (element.height - source.height * scale) / 2;
-  return { x: (rect.x - offsetX) / scale, y: (rect.y - offsetY) / scale, width: rect.width / scale, height: rect.height / scale };
-}
+/** A 2D context the v1 sampler can draw with: on-screen or offscreen. */
+export type Canvas2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 /** Largest centered card-ratio rectangle inside an uploaded photo. */
 export function containedCard(source: { width: number; height: number }): Rect {
@@ -104,7 +85,7 @@ export function frameQuality(gray: Uint8ClampedArray, width: number, height: num
 // ---------- Browser-only helpers ----------
 
 /** Draws `rect` of `source` at width×height and returns grayscale pixels. */
-export function sampleGray(context: CanvasRenderingContext2D, source: CanvasImageSource, rect: Rect, width: number, height: number): Uint8ClampedArray {
+export function sampleGray(context: Canvas2D, source: CanvasImageSource, rect: Rect, width: number, height: number): Uint8ClampedArray {
   const canvas = context.canvas;
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
@@ -118,6 +99,6 @@ export function sampleGray(context: CanvasRenderingContext2D, source: CanvasImag
 }
 
 /** Art-window fingerprints of `placements` around the guide `frame`. */
-export function hashPlacements(context: CanvasRenderingContext2D, source: CanvasImageSource, frame: Rect, placements: Placement[]): ArtHash[] {
+export function hashPlacements(context: Canvas2D, source: CanvasImageSource, frame: Rect, placements: Placement[]): ArtHash[] {
   return placements.map((p) => hashRegion(context, source, artRect(placementRect(frame, p)), (p.angle * Math.PI) / 180));
 }

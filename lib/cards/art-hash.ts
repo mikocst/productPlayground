@@ -115,7 +115,7 @@ export const HASH_BITS = 128;
  * Browser: fingerprints `rect` of `source` (drawn to 128×128, box-averaged to 32×32). `context` is reusable.
  * `angle` (radians) de-rotates the region about its center, for cards held at a slight tilt.
  */
-export function hashRegion(context: CanvasRenderingContext2D, source: CanvasImageSource, rect: Rect, angle = 0): ArtHash {
+export function hashRegion(context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, source: CanvasImageSource, rect: Rect, angle = 0): ArtHash {
   const canvas = context.canvas;
   if (canvas.width !== INTERMEDIATE || canvas.height !== INTERMEDIATE) {
     canvas.width = INTERMEDIATE;
