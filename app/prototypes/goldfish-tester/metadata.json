@@ -1,0 +1,9 @@
+{
+  "title": "Goldfish Tester",
+  "description": "Paste any Commander deck and see how fast it executes its win when nobody interacts: a seeded kill-turn histogram, Commander Spellbook combos, and a guided game plan.",
+  "tags": ["mtg", "simulation", "commander", "api"],
+  "createdAt": "2026-11-27",
+  "updatedAt": "2026-11-28T00:42:01Z",
+  "hidden": false,
+  "public": false
+}

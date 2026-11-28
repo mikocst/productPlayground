@@ -2,11 +2,16 @@
 
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useHydrated } from "@/lib/hydration";
 
 export function ThemeToggle() {
+  const hydrated = useHydrated();
   const { resolvedTheme, setTheme } = useTheme();
-  const dark = resolvedTheme === "dark";
 
+  if (!hydrated)
+    return <div className="size-11 rounded-full border border-border bg-card" />;
+
+  const dark = resolvedTheme === "dark";
   return (
     <button
       type="button"

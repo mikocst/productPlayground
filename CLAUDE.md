@@ -57,5 +57,5 @@ Before completion run `npm run lint`, `npm run typecheck`, and `npm run build`. 
 - In Next.js 16, runtime `useSearchParams()` hooks require a `<Suspense>` boundary on the route.
 - Use `proxy.ts`, not deprecated `middleware.ts`, for request interception.
 - Use the standard Tailwind PostCSS plugin with Turbopack; do not add a custom `@tailwindcss/turbopack` CSS loader.
-
 - Dynamic slug routes in Cache Components use `export const instant = false` unless they are fully prerenderable.
+- Keep server and initial client state identical; load browser-only state after mount and avoid theme-dependent output before hydration.
