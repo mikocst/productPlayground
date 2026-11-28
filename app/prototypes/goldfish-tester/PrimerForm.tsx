@@ -11,7 +11,8 @@ import { DEFAULT_PRIORITIES, describeRule, type PlanCore } from "./plan";
 import { Segmented } from "./Segmented";
 import type { PriorityRule, RoleKind } from "./types";
 import type { Goldfish } from "./useGoldfish";
-import { field, quietButton } from "./Window";
+import { Select } from "./Select";
+import { quietButton } from "./Window";
 
 const ruleKey = (r: PriorityRule) => JSON.stringify(r.do === "dig" ? { do: "dig" } : r);
 
@@ -64,14 +65,14 @@ export function PrimerForm({ g, onWins }: { g: Goldfish; onWins: () => void }) {
       <Question n={1} title="What makes an opening hand keepable?">
         <div className="grid grid-cols-2 gap-2">
           <label className="grid gap-1 text-xs">At least this many lands
-            <select className={field} value={plan.mulligan.minLands} onChange={(e) => update({ mulligan: { ...plan.mulligan, minLands: Number(e.target.value) } })}>
+            <Select value={plan.mulligan.minLands} onChange={(e) => update({ mulligan: { ...plan.mulligan, minLands: Number(e.target.value) } })}>
               {[0, 1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="grid gap-1 text-xs">At most this many lands
-            <select className={field} value={plan.mulligan.maxLands} onChange={(e) => update({ mulligan: { ...plan.mulligan, maxLands: Number(e.target.value) } })}>
+            <Select value={plan.mulligan.maxLands} onChange={(e) => update({ mulligan: { ...plan.mulligan, maxLands: Number(e.target.value) } })}>
               {[3, 4, 5, 6, 7].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            </Select>
           </label>
         </div>
         <p className="mb-1.5 mt-3 text-xs text-white/75">And it must show (mulligan otherwise, up to two times):</p>
@@ -117,9 +118,9 @@ export function PrimerForm({ g, onWins }: { g: Goldfish; onWins: () => void }) {
       </Question>
 
       <Question n={6} title="Which turn are you aiming for?">
-        <select aria-label="Target turn" className={cn(field, "max-w-40")} value={plan.targetTurn} onChange={(e) => update({ targetTurn: Number(e.target.value) })}>
+        <Select aria-label="Target turn" className="max-w-40" value={plan.targetTurn} onChange={(e) => update({ targetTurn: Number(e.target.value) })}>
           {[3, 4, 5, 6, 7, 8, 9, 10].map((t) => <option key={t} value={t}>Turn {t}</option>)}
-        </select>
+        </Select>
       </Question>
 
       {g.planCore && <Button className={quietButton} onClick={() => g.setPlanCore(null)}>Go back to the drafted plan</Button>}

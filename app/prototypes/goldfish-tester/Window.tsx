@@ -14,7 +14,7 @@ export function Window({ title, id, children, className, action }: { title: stri
   );
 }
 
-export const field = "min-h-11 w-full rounded-md border border-white/40 bg-secondary/70 px-3 text-base text-white placeholder:text-white/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400";
+export const field = "min-h-11 w-full rounded-md border border-white/40 bg-secondary/70 px-3 text-base! text-white placeholder:text-white/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400";
 export const quietButton = "border border-white/50 bg-transparent text-white hover:bg-white/10";
 export const goldButton = "border-2 border-white bg-amber-400 font-semibold text-secondary hover:bg-amber-300";
 export const dim = "text-white/70";

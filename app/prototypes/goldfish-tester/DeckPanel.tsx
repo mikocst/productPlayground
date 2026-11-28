@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CardList } from "./CardList";
 import type { Goldfish } from "./useGoldfish";
+import { Select } from "./Select";
 import { field, goldButton, quietButton } from "./Window";
 
 export function DeckPanel({ g }: { g: Goldfish }) {
@@ -50,10 +51,10 @@ export function DeckPanel({ g }: { g: Goldfish }) {
         {deck.commanderOptions.length > 0 && (
           <label className="mt-2 grid gap-1 text-xs">
             Commander
-            <select className={field} value={lead[0] ?? ""} onChange={(e) => g.chooseCommanders(e.target.value ? [e.target.value] : [])}>
+            <Select value={lead[0] ?? ""} onChange={(e) => g.chooseCommanders(e.target.value ? [e.target.value] : [])}>
               <option value="">No commander</option>
               {deck.commanderOptions.map((c) => <option key={c.oracleId} value={c.oracleId}>{c.name}</option>)}
-            </select>
+            </Select>
           </label>
         )}
       </div>

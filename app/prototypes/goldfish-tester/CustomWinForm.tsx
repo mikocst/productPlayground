@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Condition, WinCondition, WinPiece, Zone } from "./types";
 import type { Goldfish } from "./useGoldfish";
+import { Select } from "./Select";
 import { field, goldButton, quietButton } from "./Window";
 
 const ZONES: { value: Zone; label: string }[] = [
@@ -60,13 +61,13 @@ export function CustomWinForm({ g, onDone }: { g: Goldfish; onDone: () => void }
           </ul>
         )}
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto]">
-          <select aria-label="Card" className={field} value={pick} onChange={(e) => setPick(e.target.value)}>
+          <Select aria-label="Card" value={pick} onChange={(e) => setPick(e.target.value)}>
             <option value="">Choose a card…</option>
             {cards.map((c) => <option key={c.oracleId} value={c.oracleId}>{c.name}</option>)}
-          </select>
-          <select aria-label="Where it must be" className={field} value={zone} onChange={(e) => setZone(e.target.value as Zone)}>
+          </Select>
+          <Select aria-label="Where it must be" value={zone} onChange={(e) => setZone(e.target.value as Zone)}>
             {ZONES.map((z) => <option key={z.value} value={z.value}>{z.label}</option>)}
-          </select>
+          </Select>
           <Button className={quietButton} disabled={!pick} onClick={addPiece}>Add piece</Button>
         </div>
       </div>

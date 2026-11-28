@@ -17,7 +17,7 @@ Layout: on desktop (`lg`, 1024px and up) the page is a bento grid, up to `max-w-
 - Row 3, full width: Setup.
 
 Below `lg`, the windows stack in one `max-w-2xl` column in this order:
-- **Executed turn**: median executed turn, share won by the target turn, the average assembled-to-executed gap, and a histogram. Bars are rose before the target, gold on it, blue after, slate for "no win by the cap". A dashed ghost above each bar counts games that assembled on that turn but executed later. Bars have a hover/focus tooltip and a table view. Run settings sit beside the chart on desktop and stack below it on mobile: games, play/draw, a 10 or 12 turn cap, and a seed, plus Run, Reset, Surprise me (random seed) and Copy share link.
+- **Executed turn**: median executed turn, share won by the target turn, the average assembled-to-executed gap, and a histogram. Bars are rose before the target, gold on it, blue after, slate for "no win by the cap". A dashed ghost above each bar counts games that assembled on that turn but executed later. Bars have a hover/focus tooltip and a table view. Run settings sit beside the chart on desktop and stack below it on mobile: games, play/draw, a 10 or 12 turn cap, and a seed, plus Run and Copy share link. Reset and Surprise me were removed at the owner's request; that departs from the playground's control-panel rule. Changing the seed does what Surprise me did, and loading the demo list restores the demo.
 - **Which line won**: the share of wins per win condition.
 - **Watch one game**: a seeded sample game played back a turn at a time, with a skip control. Assembly is a quiet italic beat that names the mana shortfall; the win is a gold line the log scrolls to.
 - **Setup**, in three tabs:
@@ -100,7 +100,7 @@ None. The plan's optional LLM primer import (a freeform primer compiled into for
 ```text
 page.tsx
 └─ GoldfishTester (useGoldfish → useSimulator → sim.worker)
-   ├─ ResultsWindow ─ Tile ×2 · Histogram · RunControls (Segmented)
+   ├─ ResultsWindow ─ Tile ×2 · Histogram · RunControls (Select, Segmented)
    ├─ LinesWindow
    ├─ SampleGame ─ Playback
    ├─ Window "Setup" ─ Tabs
@@ -144,7 +144,7 @@ app/prototypes/goldfish-tester/
   sim.worker.ts   worker entry
   api.ts · share.ts · storage.ts · useSimulator.ts · useGoldfish.ts
   demoDeck.ts · demoCards.json (baked by scripts/build-goldfish-demo.ts)
-  GoldfishTester · Window · Segmented · ResultsWindow · Histogram · RunControls · LinesWindow · SampleGame
+  GoldfishTester · Window · Segmented · Select (native select, own chevron) · ResultsWindow · Histogram · RunControls · LinesWindow · SampleGame
   DeckPanel · CardList · RolePicker · WinConditionsPanel · CustomWinForm · PrimerForm (.tsx)
 app/api/goldfish-tester/{resolve,combos,import}/route.ts
 lib/goldfish/{http,scryfall,spellbook,archidekt}.ts      server-only upstream clients

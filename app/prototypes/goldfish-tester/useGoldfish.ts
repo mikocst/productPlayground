@@ -11,7 +11,6 @@ import { DEFAULT_SETTINGS } from "./config";
 import { DEMO_DECK } from "./demoDeck";
 import { parseDecklist } from "./parse";
 import type { PlanCore } from "./plan";
-import { randomSeed } from "./rng";
 import { decodeSetup, encodeSetup, type SharedSetup } from "./share";
 import { loadFixes, loadLastDeck, saveFixes, saveLastDeck } from "./storage";
 import type { DeckLine, GameResult, RunSettings, RunSummary, SpellbookCombo, WinCondition } from "./types";
@@ -220,21 +219,6 @@ export function useGoldfish() {
     }
   }, [composed.deck.entries, fixes, deckText, commanders, states, custom, planCore, settings, combos.status]);
 
-  const reset = useCallback(() => {
-    const url = new URL(window.location.href);
-    url.hash = "";
-    window.history.replaceState(window.history.state, "", url);
-    setSettings(DEFAULT_SETTINGS);
-    setPrimer(null);
-    setNotice(null);
-    void loadDeck(DEMO_DECK);
-  }, [loadDeck]);
-
-  const surprise = useCallback(() => {
-    setSettings((s) => ({ ...s, seed: randomSeed() }));
-    setPendingRun(true);
-  }, []);
-
   return {
     deckText, setDeckText, load, loadDeck, importUrl, primer,
     composed, fixes, setFix, replaceCard, commanders, chooseCommanders,
@@ -244,7 +228,7 @@ export function useGoldfish() {
     settings, setSettings,
     results, stale: results.summary !== null && results.signature !== signature, blocked, runNow,
     sample, dealSample,
-    share, notice, setNotice, reset, surprise,
+    share, notice, setNotice,
   };
 }
 

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { Fix } from "./classify";
 import { PICKABLE_ROLES, ROLE_LABELS } from "./config";
 import type { CardType, Role, RoleKind, SimCard } from "./types";
+import { Select } from "./Select";
 import { field, goldButton, quietButton } from "./Window";
 
 const TUTOR_TYPES: CardType[] = ["instant", "sorcery", "artifact", "creature", "enchantment"];
@@ -43,9 +44,9 @@ export function RolePicker({ card, hasFix, onSave, onClear, onCancel }: { card: 
       <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-2">
         <label className="grid gap-1 text-xs">
           Role
-          <select className={field} value={role.kind} onChange={(e) => setRole(defaults(e.target.value as RoleKind, card.role))}>
+          <Select value={role.kind} onChange={(e) => setRole(defaults(e.target.value as RoleKind, card.role))}>
             {[...new Set([...PICKABLE_ROLES, card.role.kind])].map((k) => <option key={k} value={k}>{ROLE_LABELS[k]}</option>)}
-          </select>
+          </Select>
         </label>
         <NumberField label="Cost" value={cost} onChange={setCost} />
       </div>
