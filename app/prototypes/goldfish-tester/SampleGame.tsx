@@ -41,15 +41,16 @@ function Playback({ log }: { log: LogLine[] }) {
   useEffect(() => {
     const box = boxRef.current;
     if (!box) return;
-    const target = done ? box.querySelector<HTMLElement>("[data-executed]") : box.lastElementChild as HTMLElement | null;
+    const target = done ? box.querySelector<HTMLElement>("[data-executed]") : [...box.querySelectorAll<HTMLElement>("[data-turn-group]")].at(-1) ?? null;
     if (target) box.scrollTo({ top: Math.max(0, target.offsetTop - box.offsetTop - 24), behavior: reduce ? "auto" : "smooth" });
   }, [visible, done, reduce]);
 
+  // On desktop the log is absolutely filled into its bento cell, so it adds no height of its own and scrolls instead.
   return (
-    <>
-      <div ref={boxRef} className="relative mt-3 max-h-96 overflow-auto rounded-lg bg-secondary/70 px-3 py-2.5 text-sm" aria-live="polite">
+    <div className="relative mt-3 min-h-52 flex-1">
+      <div ref={boxRef} className="max-h-96 overflow-auto rounded-lg bg-secondary/70 px-3 py-2.5 text-sm lg:absolute lg:inset-0 lg:max-h-none" aria-live="polite">
         {groups.slice(0, visible).map((group, gi) => (
-          <MotionDiv key={gi} initial={reduce ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+          <MotionDiv key={gi} data-turn-group="" initial={reduce ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }}>
             {group.map((line, li) => (
               <p
                 key={li}
@@ -68,9 +69,13 @@ function Playback({ log }: { log: LogLine[] }) {
             ))}
           </MotionDiv>
         ))}
+        {!done && (
+          <div className="sticky bottom-0 flex justify-end pt-2">
+            <Button className={cn(quietButton, "bg-secondary")} onClick={() => setShown(groups.length)}>Skip to the end</Button>
+          </div>
+        )}
       </div>
-      {!done && <Button className={cn(quietButton, "mt-2")} onClick={() => setShown(groups.length)}>Skip to the end</Button>}
-    </>
+    </div>
   );
 }
 
@@ -80,6 +85,7 @@ export function SampleGame({ g }: { g: Goldfish }) {
     <Window
       title="Watch one game"
       id="gf-sample"
+      className="flex flex-col"
       action={<Button className={quietButton} disabled={g.blocked || sample.status === "loading"} onClick={() => void g.dealSample()}>{sample.game ? "Deal another" : "Deal a sample game"}</Button>}
     >
       {sample.game?.log ? <Playback key={sample.offset} log={sample.game.log} /> : (

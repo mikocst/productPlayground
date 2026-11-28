@@ -29,7 +29,7 @@ export function DeckPanel({ g }: { g: Goldfish }) {
         <textarea
           id="gf-deck"
           spellCheck={false}
-          className={cn(field, "h-64 py-2 font-mono text-sm leading-snug")}
+          className={cn(field, "h-64 py-2 font-mono! text-sm! leading-snug!")}
           value={g.deckText}
           onChange={(e) => g.setDeckText(e.target.value)}
         />

@@ -10,7 +10,13 @@ which shows what those slots cost in speed. Each game reports two numbers:
 - **Executed turn** (the headline): the first turn the deck has every piece of a counting win condition *and* the mana to use it.
 - **Assembled turn**: the first turn all the pieces were present. The gap between the two shows whether the deck is short on pieces or short on mana.
 
-The page shows, top to bottom:
+Layout: on desktop (`lg`, 1024px and up) the page is a bento grid, up to `max-w-6xl` wide.
+- Column 1, rows 1–2: Executed turn.
+- Column 2, row 1: Which line won.
+- Column 2, row 2: Watch one game. Its log fills the rest of the results' height and scrolls, so dealing a game never stretches the tiles.
+- Row 3, full width: Setup.
+
+Below `lg`, the windows stack in one `max-w-2xl` column in this order:
 - **Executed turn**: median executed turn, share won by the target turn, the average assembled-to-executed gap, and a histogram. Bars are rose before the target, gold on it, blue after, slate for "no win by the cap". A dashed ghost above each bar counts games that assembled on that turn but executed later. Bars have a hover/focus tooltip and a table view. Run settings sit beside the chart on desktop and stack below it on mobile: games, play/draw, a 10 or 12 turn cap, and a seed, plus Run, Reset, Surprise me (random seed) and Copy share link.
 - **Which line won**: the share of wins per win condition.
 - **Watch one game**: a seeded sample game played back a turn at a time, with a skip control. Assembly is a quiet italic beat that names the mana shortfall; the win is a gold line the log scrolls to.
